@@ -18,21 +18,21 @@ Replace sample queries, operations, and datasets with inspected source data. Sup
 in `defineDataApp()`. When using bound `<DataApp>`, follow its current
 [story and dataset requirements](stories-and-export.md).
 
-Keep the starter's client, style injection, and mounting code. The host supplies
-the transport; no bootstrap or message routes are needed in app code.
+Keep the starter's client, style injection, and mounting code. The current
+single-file starter collects the operations with `dataApp.defineOperations()`
+and uses `operations.createDataClient()`. The operation's `run()` executes in
+the iframe and sends its registered query IDs and parameter values through
+`data:query`; no bootstrap or message routes are needed in app code.
 
 ## Convert a local data app
 
 1. Combine the app's filters, operations, data context, views, any presentation
    and export features, app declaration, and browser entry into one `index.tsx`, following the
    [single-file starter](app-authoring.md#use-release-matched-starters).
-2. Replace the HTTP client with `createDataClient({ operations })`, using the
-   operation registry as a value; it supplies the operations' filters, so drop
-   the `filters` option. See [browser-owned operations](client.md#browser-owned-operations-for-bundle-apps)
-   for execution through the host.
-3. Remove the Bun server, HTML, server adapters, credentials, and relative or
-   app-alias imports. Rewrite any operation that depends on server-only code
-   to use the operation's `query()` helper.
+2. Keep `operations.createDataClient()`; the hosted bootstrap supplies its
+   query bridge. See [registered operations](client.md#registered-operations).
+3. Remove the Bun server, HTML, local query adapter installation, credentials,
+   and relative or app-alias imports.
 4. Confirm the host can query the same catalogs, tables, and fields.
    [Verify the app](app-authoring.md#verify-the-app) in the hosted runtime against
    the local version's filters and findings.

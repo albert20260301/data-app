@@ -64,6 +64,8 @@ export type {
 } from '../authoring/contract.ts';
 export type {
   Lakehouse,
+  SqlLakehouse,
+  HostedLakehouse,
   OperationContext,
   DataOperations,
 } from './operation-types.ts';
@@ -100,11 +102,11 @@ export class DataSourceError extends Error {
 export {
   createMessageRouter,
   defineMessageRoute,
-  defineDataQueryRoute,
+  defineDataOperationRoute,
   MessageRoutingError,
   dataAppRoutes,
   navigationUpdateRoute,
-  sqlQueryRoute,
+  registeredQueryRoute,
 } from './messages.ts';
 export type {
   MessageContext,
@@ -119,9 +121,9 @@ export type {
   OperationContracts,
   DataQueryInput,
   DataQueryBody,
-  DataQueryRoute,
+  DataOperationRoute,
   NavigationUpdate,
-  SqlQueryInput,
+  RegisteredQueryInput,
 } from './messages.ts';
 export type { TransportResponse } from './bridge.ts';
 
@@ -149,6 +151,7 @@ export {
 } from './external-link.ts';
 export {
   dateTimeRangeFilter,
+  queryDateTimeRangeParams,
   dateTimeRangePresets,
   type DateTimeRangePreset,
   type DateTimeRangeFilter,
@@ -171,4 +174,7 @@ export type {
   RelativeDateTime,
 } from '../authoring/contract.ts';
 
-export { dateTimeRangeSql } from '../authoring/contract.ts';
+export {
+  dateTimeRangeSql,
+  resolvedDateTimeRangeParams,
+} from '../authoring/contract.ts';

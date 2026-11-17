@@ -8,15 +8,13 @@ import {
   TableWidget,
   Stack,
   TextContent,
-  injectDataAppStyles,
   mountDataApp,
   MetricWidget,
 } from '@altertable/data-app-react';
-import { createDataClient } from '@altertable/data-app/client';
 import { parseCount, searchFilter } from '@altertable/data-app/contract';
 import { formatMetric } from '@altertable/data-app/format';
 
-const dataApp = defineDataApp({
+export const dataApp = defineDataApp({
   title: 'Sample counts',
   description: 'Explore sample counts by group.',
   scope: { organization: 'demo', environment: 'sample' },
@@ -50,7 +48,7 @@ WHERE $groupName = '' OR group_name = $groupName`,
 // Declare each filter once; operations list the filters they read, and views,
 // controls, and scope derive from them.
 const groupName = searchFilter({ key: 'group', label: 'Group' });
-const operations = {
+export const operations = dataApp.defineOperations({
   sampleCountsByGroup: dataApp.defineOperation({
     filters: { groupName },
     policy: { maxQueryRows: 10, maxDurationMs: 15000 },
@@ -70,7 +68,7 @@ const operations = {
       return { sampleCount: parseCount(queryResult.rows[0]?.sample_count) };
     },
   }),
-};
+});
 const queryNames = {
   ...operations.sampleCountsByGroup.queryNames,
   ...operations.sampleTotal.queryNames,
@@ -87,7 +85,7 @@ const sampleDataContext = createDataContext(queryNames)({
     },
   },
 });
-const { defineView } = createDataHooks(createDataClient({ operations }));
+const { defineView } = createDataHooks(operations.createDataClient());
 const sampleCountsView = defineView({
   dataContext: sampleDataContext,
   operation: 'sampleCountsByGroup',
@@ -192,5 +190,4 @@ function App() {
     </DataApp>
   );
 }
-injectDataAppStyles();
 mountDataApp({ app: dataApp, component: App });

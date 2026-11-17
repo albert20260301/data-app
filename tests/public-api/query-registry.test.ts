@@ -1,13 +1,17 @@
 import { defineDataApp, type DataAppConfig } from '@altertable/data-app';
-import { createDataClient } from '@altertable/data-app/client';
+import {
+  createDataClient,
+  createLocalQueryLakehouse,
+  installLocalQueryLakehouse,
+} from '@altertable/data-app/client';
 import {
   defineOperation,
   type Lakehouse,
+  type HostedLakehouse,
   type QueryDefinitions,
   type QueryParameters,
 } from '@altertable/data-app/contract';
-import { createDataHandler } from '@altertable/data-app/server';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 const dataApp = defineDataApp({
   title: 'Products',
@@ -62,7 +66,7 @@ function source(statements: DeliveredQuery[]): Lakehouse {
   };
 }
 
-test('config queries execute defaults and overrides with shared browser and HTTP evidence', async () => {
+test('config queries execute defaults and overrides with browser query evidence', async () => {
   const statements: DeliveredQuery[] = [];
   const operations = { products: products({ orgId: 'org-1' }) };
   expect(operations.products.queryNames).toEqual({ products: 'products' });
@@ -79,21 +83,6 @@ test('config queries execute defaults and overrides with shared browser and HTTP
       queryId: 'q1',
     },
   ]);
-  const handler = createDataHandler(operations, async () => ({
-    lakehouse: source(statements),
-  }));
-  const response = await handler(
-    new Request('http://localhost/api/data/products', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    })
-  );
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({
-    queries: result.queries,
-    data: result.data,
-  });
   const overridden = createDataClient({
     operations: { products: products({ orgId: 'org-1', limit: 5 }) },
     lakehouse: source(statements),
@@ -106,13 +95,83 @@ test('config queries execute defaults and overrides with shared browser and HTTP
     },
     {
       statement: dataApp.queries.products.statement,
-      params: { orgId: 'org-1', limit: 10 },
-    },
-    {
-      statement: dataApp.queries.products.statement,
       params: { orgId: 'org-1', limit: 5 },
     },
   ]);
+});
+
+test('hosted execution sends the registered query ID without a SQL statement', async () => {
+  const calls: { queryId: string; params?: QueryParameters }[] = [];
+  const hosted: HostedLakehouse = {
+    async queryAllById(queryId, { limit, params }) {
+      expect(limit).toBe(20);
+      calls.push({ queryId, params });
+      return { columns: [{ name: 'org_id' }], rows: [['org-1']] };
+    },
+  };
+  const client = createDataClient({
+    operations: { products: products({ orgId: 'org-1' }) },
+    lakehouse: hosted,
+  });
+  await expect(client.query('products', {})).resolves.toMatchObject({
+    data: { rows: [{ org_id: 'org-1' }] },
+  });
+  expect(calls).toEqual([
+    { queryId: 'products', params: { orgId: 'org-1', limit: 10 } },
+  ]);
+});
+
+test('local query adapter posts the ID and parameters to the Bun route', async () => {
+  const requests: { url: string; body: unknown }[] = [];
+  const lakehouse = createLocalQueryLakehouse('/api/query', (async (
+    url: RequestInfo | URL,
+    options?: RequestInit
+  ) => {
+    requests.push({
+      url: url instanceof Request ? url.url : url.toString(),
+      body: JSON.parse(options?.body as string),
+    });
+    return Response.json({
+      columns: [{ name: 'org_id' }],
+      rows: [['org-1']],
+    });
+  }) as typeof fetch);
+  const client = createDataClient({
+    operations: { products: products({ orgId: 'org-1' }) },
+    lakehouse,
+  });
+  await client.query('products', {});
+  expect(requests).toEqual([
+    {
+      url: '/api/query/products',
+      body: { limit: 20, params: { orgId: 'org-1', limit: 10 } },
+    },
+  ]);
+});
+
+test('local installation lets the same operation client run in the browser', async () => {
+  const frame = {} as Window;
+  vi.stubGlobal('window', frame);
+  const calls: string[] = [];
+  const uninstall = installLocalQueryLakehouse(frame, {
+    async queryAllById(queryId) {
+      calls.push(queryId);
+      return { columns: [{ name: 'org_id' }], rows: [['org-1']] };
+    },
+  });
+  try {
+    const operations = dataApp.defineOperations({
+      products: products({ orgId: 'org-1' }),
+    });
+    const client = operations.createDataClient();
+    await expect(client.query('products', {})).resolves.toMatchObject({
+      data: { rows: [{ org_id: 'org-1' }] },
+    });
+    expect(calls).toEqual(['products']);
+  } finally {
+    uninstall();
+    vi.unstubAllGlobals();
+  }
 });
 
 test('query failures reject missing, extra, invalid, and inherited parameters before source execution', async () => {
@@ -134,34 +193,6 @@ test('query failures reject missing, extra, invalid, and inherited parameters be
     });
   }
   expect(statements).toEqual([]);
-});
-
-test('HTTP authorization supplies protected parameter values and callers cannot override them', async () => {
-  const statements: DeliveredQuery[] = [];
-  for (const values of [{}, { orgId: 'other-org' }]) {
-    const handler = createDataHandler(
-      { products: products(values) },
-      async () => ({
-        lakehouse: source(statements),
-
-        queryParams: { orgId: 'org-1', environment: 'test' },
-      })
-    );
-    const response = await handler(
-      new Request('http://localhost/api/data/products', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-    );
-    expect(response.status).toBe(Object.hasOwn(values, 'orgId') ? 502 : 200);
-  }
-  expect(statements).toEqual([
-    {
-      statement: dataApp.queries.products.statement,
-      params: { orgId: 'org-1', limit: 10 },
-    },
-  ]);
 });
 
 test('registry validation checks declarations and defaults without interpreting SQL', () => {

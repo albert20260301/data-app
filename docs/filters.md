@@ -69,27 +69,26 @@ function App() {
 | `numberFilter()`, `booleanFilter()`                    | `NumberSelection`, `BooleanSelection`          |
 | `dateTimeRangeFilter()`                                | `{ range, comparison }` of resolved dates      |
 
-Pass values to declared query parameters; never interpolate them into SQL. Date
-ranges bind as [`dateTimeRange` parameters](contract.md#bind-date-ranges). A
-dimension selection binds whole to a `{ type: 'dimension', valueType }`
-parameter; `$country.matches(column)` keeps the selected rows, including
-multiple members, missing values, and exclusion:
+Pass values to declared query parameters; never interpolate them into SQL. Bind
+date filter bounds as [separate parameters](contract.md#bind-date-ranges).
+For a single-value choice, bind its selected ID as a string:
 
 ```ts
 // ... in defineDataApp({ queries })
 revenueByCampaign: {
   statement: `SELECT o.campaign, sum(o.amount) AS revenue
     FROM demo.orders o JOIN demo.customers c ON c.id = o.customer_id
-    WHERE $country.matches(c.country)
+    WHERE c.country = $country
     GROUP BY o.campaign`,
-  params: { country: { type: 'dimension', valueType: 'string' } },
+  params: { country: { type: 'string' } },
   projections: { campaign: { type: 'string' }, revenue: { type: 'number' } },
 },
 // ... in the operation: query('revenueByCampaign', { country: input.country })
 ```
 
-Dimension, number, and boolean selections support `{ kind: 'all' }`. Offer only
-predicates the registered query supports.
+Dimension selections bind as JSON. Express multiple values, missing values, and
+exclusion in DuckDB SQL. Dimension, number, and boolean selections support
+`{ kind: 'all' }`. Offer only predicates the registered query supports.
 
 ## Categorical dimensions
 
@@ -208,9 +207,10 @@ period, time zone, and metric comparisons:
 import {
   dateTimeRangeFilter,
   dateTimeRangePresets,
+  queryDateTimeRangeParams,
 } from '@altertable/data-app/contract';
 
-const period = dateTimeRangeFilter({
+const periodFilter = dateTimeRangeFilter({
   key: 'period',
   defaultValue: '30d',
   maxRangeDays: 90,
@@ -218,14 +218,14 @@ const period = dateTimeRangeFilter({
   presets: dateTimeRangePresets.analytics,
 });
 const dailyCounts = dataApp.defineOperation({
-  filters: { period, groupName },
+  filters: { period: periodFilter, groupName },
   policy: { maxQueryRows: 100, maxDurationMs: 15000 },
   async run({ query }, { period, groupName }) {
     const current = await query('dailyCounts', {
-      period: period.range,
+      ...queryDateTimeRangeParams(periodFilter, period, 'period').current,
       groupName,
     });
-    // ... query { period: period.comparison } when it is not null
+    // ... use .comparison for the previous period when selected
     return current.rows;
   },
 });
@@ -233,8 +233,8 @@ const dailyCounts = dataApp.defineOperation({
 
 - `run()` receives `{ range, comparison }` with resolved dates. Ranges include
   `from` and exclude `to`: September 24–30 queries `2026-09-24T00:00:00Z`
-  through `2026-10-01T00:00:00Z`. Bind them to a
-  [`dateTimeRange` parameter](contract.md#bind-date-ranges).
+  through `2026-10-01T00:00:00Z`. Bind them as
+  [separate parameters](contract.md#bind-date-ranges).
 - A range that runs past now ends at now: today picked in the calendar queries
   midnight through the current time.
 - `comparison: 'off'` or `'on'` offers the previous-period toggle, starting in
@@ -258,38 +258,3 @@ use app-owned drafts only when the task needs Apply/Cancel.
 Custom control ownership is needed only when generated controls cannot express
 the requirement; use `/ui` for that case. Do not reuse reserved inspection,
 presentation, or navigation URL keys.
-
-## Share filters with HTTP and local apps
-
-HTTP and local apps keep operations on the server, so the browser imports them
-as types only. Declare filters in a browser-safe module that both sides import:
-
-```ts
-// src/filters.ts
-import { choiceFilter } from '@altertable/data-app/contract';
-
-const groupName = choiceFilter({
-  // ... key, label, defaultValue, and options
-});
-
-export const operationFilters = {
-  sampleCountsByGroup: { groupName },
-  sampleCountsBySegment: { groupName },
-};
-```
-
-Each operation in `src/operations.ts` declares
-`filters: operationFilters.sampleCountsByGroup`, and the browser client receives
-the same map:
-
-```ts
-// src/App.tsx
-import { operationFilters } from '#app/filters.ts';
-import type { operations } from '#app/operations.ts';
-
-const { defineView } = createDataHooks(
-  createDataClient<typeof operations>({ filters: operationFilters })
-);
-```
-
-The client's types require `filters` whenever an operation declares them.

@@ -1,9 +1,5 @@
 import { defineDataApp } from '@altertable/data-app';
-import {
-  createDataContext,
-  injectDataAppStyles,
-  mountDataApp,
-} from '@altertable/data-app-react';
+import { createDataContext, mountDataApp } from '@altertable/data-app-react';
 import {
   createDataHooks,
   DataApp,
@@ -12,9 +8,8 @@ import {
   Stack,
 } from '@altertable/data-app-react';
 import { BarChart } from '@altertable/data-app-react/ui';
-import { createDataClient } from '@altertable/data-app/client';
 import { choiceFilter, parseCount } from '@altertable/data-app/contract';
-const dataApp = defineDataApp({
+export const dataApp = defineDataApp({
   title: 'Sample metric',
   description: 'Fixture counts by group; replace with the requested metric.',
   scope: { organization: 'demo', environment: 'sample' },
@@ -68,7 +63,7 @@ const groupName = choiceFilter({
 function queryGroup(groupName: string) {
   return groupName === 'all' ? '' : groupName;
 }
-const operations = {
+export const operations = dataApp.defineOperations({
   sampleCountsByGroup: dataApp.defineOperation({
     filters: { groupName },
     policy: { maxQueryRows: 10, maxDurationMs: 15000 },
@@ -101,7 +96,7 @@ const operations = {
       }));
     },
   }),
-};
+});
 const queryNames = {
   ...operations.sampleCountsByGroup.queryNames,
   ...operations.sampleCountsBySegment.queryNames,
@@ -120,7 +115,7 @@ const sampleDataContext = createDataContext(queryNames)({
     },
   },
 });
-const { defineView } = createDataHooks(createDataClient({ operations }));
+const { defineView } = createDataHooks(operations.createDataClient());
 const sampleCountsView = defineView({
   dataContext: sampleDataContext,
   operation: 'sampleCountsByGroup',
@@ -228,5 +223,4 @@ function App() {
     </DataApp>
   );
 }
-injectDataAppStyles();
 mountDataApp({ app: dataApp, component: App });

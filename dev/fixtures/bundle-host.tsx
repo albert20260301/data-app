@@ -4,7 +4,6 @@ import {
   type DataAppStatus,
   createNavigationHandler,
   createExternalLinkHandler,
-  createSqlQueryHandler,
 } from '@altertable/data-app-embed';
 import {
   DataAppBridge,
@@ -19,7 +18,6 @@ import {
 } from '@altertable/data-app-react';
 import { AppIcon } from '@altertable/data-app-react/ui';
 import type { Theme } from '@altertable/data-app/appearance';
-import { createHttpTransport } from '@altertable/data-app/client';
 import {
   MessageRoutingError,
   annotationDraftRoute,
@@ -30,7 +28,6 @@ import {
   createMessageRouter,
   openExternalLinkRoute,
   defineMessageRoute,
-  sqlQueryRoute,
   DataSourceError,
 } from '@altertable/data-app/contract';
 import { KEY_SEPARATOR } from '@altertable/data-app/internal';
@@ -303,7 +300,6 @@ function Host() {
       : {}),
     ...(hostOptions.has('lazy') ? { loading: 'lazy' as const } : {}),
   };
-  const forward = createHttpTransport();
   const [openExternalLink] = useState(() => createExternalLinkHandler());
 
   const fileExportRoute = defineMessageRoute({
@@ -346,7 +342,6 @@ function Host() {
       'annotation:editor': annotationEditorStateRoute,
       'annotation:send': annotationSendRoute,
       'annotation:update': annotationUpdateRoute,
-      'data:sql': sqlQueryRoute,
       'navigation:openExternal': openExternalLinkRoute,
       'export:csv': fileExportRoute,
       'export:zip': fileExportRoute,
@@ -366,28 +361,20 @@ function Host() {
       'navigation:openExternal': openExternalLink,
       'export:csv': downloadExport,
       'export:zip': downloadExport,
-      'data:sql': createSqlQueryHandler(async () => ({
-        async queryAll(statement, { limit, signal, params }) {
-          const response = await fetch('/api/sql', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ statement, limit, params }),
-            signal,
-          });
-          if (response.ok) return response.json();
-          const { error } = (await response.json()) as {
-            error: { reason?: DataSourceError['reason']; message: string };
-          };
-          throw new DataSourceError(error.reason ?? 'unavailable', undefined, {
-            cause: new Error(error.message),
-          });
-        },
-      })),
+      async 'data:query'({ queryId, limit, params }, { signal }) {
+        const response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ queryId, limit, params }),
+          signal,
+        });
+        if (response.status === 404)
+          throw new MessageRoutingError('forbidden', 'Query not registered.');
+        if (!response.ok) throw new DataSourceError('unavailable');
+        return response.json();
+      },
       'test:echo'({ period }) {
         return { period, version };
-      },
-      'data:query'({ operation, input }, { signal }) {
-        return forward(operation, input, signal);
       },
       'navigation:update': createNavigationHandler(),
     }

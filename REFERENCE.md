@@ -296,20 +296,9 @@ ControlBar (component, @altertable/data-app-react/ui): (props: ControlBarProps) 
 ControlBar.children: ReactNode
 ControlBar.…: plus props inherited from React
 ControlBarProps (type, @altertable/data-app-react/ui): = props listed as ControlBar.*
-createDataClient (function, @altertable/data-app/client): <Operations extends DataOperations>(...args: DataClientOptions<Operations> extends never ? [ options: never ] : keyof OperationFilters<Operations> extends never ? [ ] : [ options: never ]): DataClient<Operations>; (options: TransportOptions): DataClient<DataOperations>; <Operations extends DataOperations>(options: DataClientOptions<Operations>): DataClient<Operations> — Named clients derive data from the declared operations' run return types. Without an operation contract, external operation data remains unknown.
-createDataClient.options.transport?: DataTransport
-createDataClient.options.endpoint?: string
-createDataClient.options.fetch?: (input: RequestInfo | URL, init: RequestInit): Promise<Response>
-createDataClient.options.fetch?: (input: string | URL | Request, init: BunFetchRequestInit): Promise<Response>
-createDataClient.options.fetch?: (input: string | URL | Request, init: RequestInit): Promise<Response>
-createDataClient.options.operations: Operations [variant 1 of 2]
-createDataClient.options.lakehouse?: Lakehouse [variant 1 of 2]
-createDataClient.options.transport?: DataTransport [variant 2 of 2]
-createDataClient.options.endpoint?: string [variant 2 of 2]
-createDataClient.options.fetch?: (input: RequestInfo | URL, init: RequestInit): Promise<Response> [variant 2 of 2]
-createDataClient.options.fetch?: (input: string | URL | Request, init: BunFetchRequestInit): Promise<Response> [variant 2 of 2]
-createDataClient.options.fetch?: (input: string | URL | Request, init: RequestInit): Promise<Response> [variant 2 of 2]
-createDataClient.options.filters?: OperationFilters<Operations> [variant 2 of 2] — Pass the same filter declarations the server operations read.
+createDataClient (function, @altertable/data-app/client): <Operations extends DataOperations>(options: DataClientOptions<Operations>): DataClient<Operations> — Create a browser operation client.
+createDataClient.options.operations: Operations
+createDataClient.options.lakehouse?: Lakehouse
 createDataContext (function, @altertable/data-app-react): <const Names extends Record<string, string>>(queryNames: Names): <const Context extends Omit<DataContext, 'glossary'> & { glossary: Record<string, Omit<GlossaryEntry, 'queryNames'> & { queryNames?: Names[keyof Names][]; }>; }>(context: Context) => Context & { ...; } — Bind glossary query references and card evidence to the same registry.
 createDataHooks (function, @altertable/data-app-react): <Operations extends DataOperations>(client: DataClient<Operations>): { defineView: <Name extends ViewOperationName<Operations>, const Context extends AuthoringDataContext = AuthoringDataContext>(definition: { operation: Name; dataContext: DataContext; describeInput?: ((input: FilterInput<...>) => s… — Bind declared operations to URL filters, displayed readings, and request feedback. The client's operations declare their filters; `<DataApp>` renders their controls.
 createDataHooks.client.filters: Readonly<Record<string, FilterCollection>> — Each operation's filters; views derive their inputs and controls from them.
@@ -389,10 +378,13 @@ DataAppDefinition.queries: QuerySnapshot<Queries>
 DataAppDefinition.defineDimension: <const Type extends 'string' | 'number'>(config: DimensionSourceConfig<Type> & { source: { query: DimensionSourceQueryName<Queries, NoInfer<Type>>; }; }) => SourceDimensionFilter<...>
 DataAppDefinition.defineOperation: <Input, Output, const Filters extends FilterCollection = {}>(operation: InputOperationDefinition<Input, Output, Queries, Filters>): DefinedOperation<WithFilterInput<Filters, Input>, Output, Queries, keyof Filters extends never ? undefined : Filters> — Parse a destination's own input, such as a record id, and list valid `checks`. Declare `filters` too when it reads the displayed scope.
 DataAppDefinition.defineOperation: <const Filters extends FilterCollection = {}, Output = unknown>(operation: FilterOperationDefinition<Filters, Output, Queries>): DefinedOperation<FilterInput<Filters>, Output, Queries, Filters>
+DataAppDefinition.defineOperations: <const Operations extends DataOperations>(operations: Operations) => DataAppOperationRegistry<Operations> — Bind a named registry to these queries and derive its client and filters.
 DataAppError (class, @altertable/data-app/client)
 DataAppError.code: string
 DataAppError.requestId?: string
 DataAppError.…: plus props inherited from built-in
+DataAppOperationRegistry (type, @altertable/data-app, @altertable/data-app/config): <Operations>
+DataAppOperationRegistry.createDataClient: () => DataClient<Operations> — Run operations in a hosted iframe using its installed query bridge.
 DataAppProps (type, @altertable/data-app-react): <Data, Input, SummaryViews> = props listed as DataApp.*
 DataAppProps (type, @altertable/data-app-react/ui)
 DataAppProps.children: ReactNode
@@ -420,7 +412,7 @@ DataAppStyleToken (type, @altertable/data-app-react, @altertable/data-app-react/
 DataAppView (type, @altertable/data-app-react): <Data, Input> — A declared data or time view that `<DataApp>` can run and describe.
 DataAppView.scope: (snapshot: DisplayedSnapshot<Data, Input>) => string
 DataClient (type, @altertable/data-app/client): <Operations> = props listed as createDataHooks.client.*
-DataClientOptions (type, @altertable/data-app/client): <Operations> = props listed as createDataClient.options.* — Browser operations and named-operation delivery are mutually exclusive.
+DataClientOptions (type, @altertable/data-app/client): <Operations> = props listed as createDataClient.options.* — Execute declared operations in the browser against registered query IDs.
 DataContext (type, @altertable/data-app-react)
 DataContext.description: ReactNode
 DataContext.glossary: Record<string, GlossaryEntry>
@@ -434,7 +426,7 @@ DataIdentifierDefinition.name: string
 DataIdentifierDefinition.kind: 'table' [variant 2 of 2]
 DataIdentifierDefinition.catalog: string [variant 2 of 2]
 DataIdentifierDefinition.schema: string [variant 2 of 2]
-DataOperation (type, @altertable/data-app/contract): <Input, Output> — The input parser runs in the operation executor's runtime: server for HTTP apps, browser for bundle apps. Browser validation does not replace backend authorization or query limits.
+DataOperation (type, @altertable/data-app/contract): <Input, Output> — The input parser runs in the browser. Browser validation does not replace backend authorization or query limits.
 DataOperation.filters?: Readonly<FilterCollection> — The app filters the operation reads; its input has one field per filter.
 DataOperation.input: (value: unknown) => Input
 DataOperation.run: (context: OperationContext, input: Input) => Promise<Output>
@@ -575,7 +567,7 @@ DateTimeFormatOptions.timeZone?: string
 DateTimeFormatOptions.precision?: 'minute' | 'second'
 DateTimeRange (type, @altertable/data-app, @altertable/data-app/config, @altertable/data-app/contract, @altertable/data-app/format): = props listed as dateTimeRangeSql.range.*
 DateTimeRangeComparison (type, @altertable/data-app/contract, @altertable/data-app-react/ui): = 'off' | 'on' — Offer the previous-period comparison, with its toggle starting off or on.
-dateTimeRangeFilter (function, @altertable/data-app/contract, @altertable/data-app-react/ui): <Comparison extends DateTimeRangeComparison | undefined = undefined>(options: DateTimeRangeFilterOptions<Comparison>): DateTimeRangeFilter<undefined extends Comparison ? false : true> — One declaration drives the picker, URL state, and the input of operations that list it. Operations receive `{ range, comparison }`: `from` inclusive, `to` exclusive.
+dateTimeRangeFilter (function, @altertable/data-app/contract, @altertable/data-app-react/ui): <Comparison extends DateTimeRangeComparison | undefined = undefined>(options: DateTimeRangeFilterOptions<Comparison>): DateTimeRangeFilter<undefined extends Comparison ? false : true> — One declaration drives the picker, URL state, and the input of operations that list it. Operations receive resolved bounds and the original selection: `from` inclusive, `to` exclusive.
 dateTimeRangeFilter.options.key: string
 dateTimeRangeFilter.options.label?: string
 dateTimeRangeFilter.options.defaultValue: string | DateTimeRange — Range text such as "7d" stays relative; `{ from, to }` is absolute.
@@ -609,9 +601,7 @@ DateTimeRangeFilter.request: (selection: DateTimeRangeSelection, now?: Date | un
 DateTimeRangeFilter.parseInput: (value: unknown) => DateTimeRangeInput — Validate untrusted input against coverage and return what the operation receives.
 DateTimeRangeFilter.previous: (selection: DateTimeRangeSelection) => ResolvedDateTimeRange | null
 DateTimeRangeFilterOptions (type, @altertable/data-app/contract, @altertable/data-app-react/ui): <Comparison> = props listed as dateTimeRangeFilter.options.*
-DateTimeRangeInput (type, @altertable/data-app/contract): What an operation receives for a date filter: resolved bounds, `from` inclusive and `to` exclusive, and the same window one selected length earlier while the comparison is on.
-DateTimeRangeInput.range: ResolvedDateTimeRange
-DateTimeRangeInput.comparison: ResolvedDateTimeRange | null
+DateTimeRangeInput (type, @altertable/data-app/contract): = props listed as queryDateTimeRangeParams.input.* — What an operation receives for a date filter: resolved bounds, `from` inclusive and `to` exclusive, and the same window one selected length earlier while the comparison is on.
 DateTimeRangeParseFailureReason (type, @altertable/data-app/format): = 'ambiguous' | 'empty' | 'invalid-range' | 'unrecognized'
 DateTimeRangeParserOptions (type, @altertable/data-app/format)
 DateTimeRangeParserOptions.now?: Date — UTC-encoded reference fields for omitted dates/years. Defaults to the current UTC date/time.
@@ -928,8 +918,9 @@ FunnelChartSeries.values: readonly number[] — Finite, nonnegative counts align
 FunnelChartStep (type, @altertable/data-app-react/ui): Ordered step with a unique, nonblank ID.
 FunnelChartStep.id: string
 FunnelChartStep.label: string
-GettingStarted (component, @altertable/data-app-react/ui): (props: {…}) — Query-backed connection state and next steps for a newly created app. Mount within `DataAppProvider` and register `connection: connectionCheck(app.queries)` on the server.
+GettingStarted (component, @altertable/data-app-react/ui): (props: {…}) — Query-backed connection state and next steps for a newly created app. Mount within `DataAppProvider` and supply the app's registered connection operation.
 GettingStarted.dataContext: DataContext
+GettingStarted.client: DataClient<{ connection: ConnectionOperation; }>
 GlossaryDefinition (component, @altertable/data-app-react/ui): (props: GlossaryDefinitionProps)
 GlossaryDefinition.entry: GlossaryEntry
 GlossaryDefinition.children?: ReactNode
@@ -1112,7 +1103,7 @@ MetricWidget.content: string | (string & Iterable<ReactNode>) | (string & Promis
 MetricWidget.…: plus props inherited from React
 MetricWidgetProps (type, @altertable/data-app-react): <Data, Input> = props listed as MetricWidget.*
 MetricWidgetProps (type, @altertable/data-app-react/ui): = props listed as MetricWidget.* — VisualizationWidget with a formatted metric, optional comparison, and evidence.
-mountDataApp (function, @altertable/data-app-react): <const Queries extends QueryDefinitions>(options: {…}): void — Mount once per document; installs document identity and the shared request provider.
+mountDataApp (function, @altertable/data-app-react): <const Queries extends QueryDefinitions>(options: {…}): void — Mount once per browser document; server imports do not mount.
 mountDataApp.options.app: DataAppDefinition<Queries>
 mountDataApp.options.component: ComponentType
 mountDataApp.options.root?: HTMLElement | null
@@ -1314,12 +1305,18 @@ PresentStory.footer?: ReactNode
 PresentStory.trigger?: boolean — False renders only the presentation, which `?present=1&step=` opens.
 PresentStory.…: plus props inherited from React
 PresentStoryProps (type, @altertable/data-app-react/ui): = props listed as PresentStory.*
+queryDateTimeRangeParams (function, @altertable/data-app/contract): <const Prefix extends string>(filter: Pick<DateTimeRangeFilter, 'request'>, input: DateTimeRangeInput, prefix: Prefix, now: Date): { current: Record<`${Prefix}_from` | `${Prefix}_to`, string>; comparison: Record<`${Prefix}_from` | `${Prefix}_to`, string> | null; combined: Record<`${Prefix}_from` |… — Bind one date selection immediately before dispatching a query. Both periods share one clock.
+queryDateTimeRangeParams.filter.request: (selection: DateTimeRangeSelection, now?: Date | undefined) => DateTimeRangeRequest — Resolve a selection against one reference time.
+queryDateTimeRangeParams.input.range: ResolvedDateTimeRange
+queryDateTimeRangeParams.input.comparison: ResolvedDateTimeRange | null
+queryDateTimeRangeParams.input.selection?: DateTimeRangeSelection — Original selection, retained so relative bounds can be resolved when a query runs.
+queryDateTimeRangeParams.now.…: plus props inherited from built-in
 QueryDefinitions (type, @altertable/data-app, @altertable/data-app/config, @altertable/data-app/contract): <Record<string, QueryDefinition>> = { readonly [x: string]: QueryDefinition; }
 QueryField (type, @altertable/data-app, @altertable/data-app/config, @altertable/data-app/contract)
 QueryField.type: keyof QueryValues
 QueryField.nullable?: boolean
-QueryParameter (type, @altertable/data-app, @altertable/data-app/config, @altertable/data-app/contract): Typed scalar, datetime-range, or dimension parameters with optional fallback values.
-QueryParameter.type: 'dimension' [variant 1 of 10] — A dimension filter's `DimensionSelection`; `$name.matches(column)` is true for the rows it keeps, including missing-value and exclusion semantics.
+QueryParameter (type, @altertable/data-app, @altertable/data-app/config, @altertable/data-app/contract): Typed scalar, datetime-range, or dimension parameters with optional fallback values. Structured values bind as JSON; statements use DuckDB SQL to read their fields.
+QueryParameter.type: 'dimension' [variant 1 of 10] — A dimension filter's `DimensionSelection`, bound as validated JSON.
 QueryParameter.valueType: 'number' | 'string' [variant 1 of 10]
 QueryParameter.nullable?: false [variants 1, 2, 3, 4, 5, 6 of 10]
 QueryParameter.type: 'dateTimeRange' [variant 2 of 10]
@@ -1386,9 +1383,10 @@ resolveDateTimeRange (function, @altertable/data-app/contract): (value: DateTime
 resolveDateTimeRange.value.from?: AbsoluteOrRelativeDateTime | null — Inclusive start; null or omitted means unbounded.
 resolveDateTimeRange.value.to?: AbsoluteOrRelativeDateTime | null — Exclusive end; null or omitted means now.
 resolveDateTimeRange.now.…: plus props inherited from built-in
-ResolvedDateTimeRange (type, @altertable/data-app/contract): Bounded, resolved wall-clock dates encoded in UTC, with an exclusive end.
-ResolvedDateTimeRange.from: Date
-ResolvedDateTimeRange.to: Date
+ResolvedDateTimeRange (type, @altertable/data-app/contract): = props listed as resolvedDateTimeRangeParams.range.* — Bounded, resolved wall-clock dates encoded in UTC, with an exclusive end.
+resolvedDateTimeRangeParams (function, @altertable/data-app/contract): <const Prefix extends string>(range: ResolvedDateTimeRange, prefix: Prefix): Record<`${Prefix}_from` | `${Prefix}_to`, string> — Bind a resolved filter range as timestamp strings for literal DuckDB SQL. Dates carry reporting-zone wall-clock fields in UTC; omit `Z` for TIMESTAMP casts.
+resolvedDateTimeRangeParams.range.from: Date
+resolvedDateTimeRangeParams.range.to: Date
 RetentionChart (component, @altertable/data-app-react/ui): (props: RetentionChartProps) — Query-defined retention curves with count inspection and dotted incomplete periods. Rates are not recomputed from counts. Compose inside VisualizationWidget.
 RetentionChart.ariaLabel: string — Accessible measure and scope description.
 RetentionChart.unit: string — Population unit, such as users or sessions.

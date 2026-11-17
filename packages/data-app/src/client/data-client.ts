@@ -4,7 +4,6 @@ import { withDimensionSelectors } from '../core/dimension-source.ts';
 import type { DimensionOption } from '../core/dimension.ts';
 import { facetSource, type FacetFilter } from '../core/facets.ts';
 import { invariant } from '../core/invariant.ts';
-import { defineDataQueryRoute, MessageRoutingError } from '../core/messages.ts';
 import { combineOperationFilters } from '../core/operation-filters.ts';
 import type {
   DataQueryBody,
@@ -18,9 +17,9 @@ import {
 import type { IsUnion, KnownRecord } from '../core/queries.ts';
 import { randomUuid } from '../core/uuid.ts';
 import { appDiagnostics } from './diagnostics.ts';
-import { getDataAppTransport, localFrameBridge } from './iframe.ts';
-import { createHttpTransport, DataAppError } from './transport.ts';
-import type { DataTransport } from './transport.ts';
+import { getDataAppTransport } from './iframe.ts';
+import { getLocalQueryLakehouse } from './local-query.ts';
+import { DataAppError } from './transport.ts';
 export type { InputOf, OutputOf } from '../core/operation-types.ts';
 
 /**
@@ -89,22 +88,6 @@ function typedClient<Operations extends DataOperations>(
   return implementation as DataClient<Operations>;
 }
 
-type TransportOptions = {
-  operations?: never;
-  lakehouse?: never;
-  transport?: DataTransport;
-  endpoint?: string;
-  fetch?: typeof fetch;
-};
-/** Server-owned operations stay type-only, so the browser receives their filters. */
-type TransportFilters<Operations extends DataOperations> =
-  keyof OperationFilters<Operations> extends never
-    ? { filters?: OperationFilters<Operations> }
-    : {
-        /** Pass the same filter declarations the server operations read. */
-        filters: OperationFilters<Operations>;
-      };
-
 /** Distribute over conditional filter members so each possible facet is checked. */
 type UncheckedFacet<Operations extends DataOperations, Filter, Key> =
   Filter extends FacetFilter<infer Value, infer Source>
@@ -139,7 +122,7 @@ type CheckedFacets<Operations extends DataOperations> = {
   : {
       'Facet filter options must name a registered operation returning DimensionOption[]': never;
     };
-/** Browser operations and named-operation delivery are mutually exclusive. */
+/** Execute declared operations in the browser against registered query IDs. */
 export type DataClientOptions<Operations extends DataOperations> =
   (KnownRecord<Operations> extends never
     ? never
@@ -147,79 +130,18 @@ export type DataClientOptions<Operations extends DataOperations> =
           [Name in keyof Operations]: IsUnion<Operations[Name]>;
         }[keyof Operations]
       ? never
-      : unknown) &
-    (
-      | {
-          operations: Operations;
-          lakehouse?: Lakehouse;
-          transport?: never;
-          endpoint?: never;
-          fetch?: never;
-          filters?: never;
-        }
-      | (TransportOptions & TransportFilters<Operations>)
-    ) &
-    CheckedFacets<Operations>;
+      : unknown) & {
+    operations: Operations;
+    lakehouse?: Lakehouse;
+  } & CheckedFacets<Operations>;
 
-const dataQueryRoute = defineDataQueryRoute();
-
-/** Named HTTP operations, or browser-owned operations executed through an authorized SQL bridge. */
-/** Named clients derive data from the declared operations' run return types. */
-export function createDataClient<Operations extends DataOperations>(
-  ...args: DataClientOptions<Operations> extends never
-    ? [options: never]
-    : keyof OperationFilters<Operations> extends never
-      ? []
-      : [options: never]
-): DataClient<Operations>;
-/** Without an operation contract, external operation data remains unknown. */
-export function createDataClient(
-  options?: TransportOptions
-): DataClient<DataOperations>;
+/** Create a browser operation client. */
 export function createDataClient<Operations extends DataOperations>(
   options: DataClientOptions<Operations>
-): DataClient<Operations>;
-export function createDataClient<Operations extends DataOperations>(
-  options:
-    | DataClientOptions<Operations>
-    | (TransportOptions & {
-        filters?: Readonly<Record<string, FilterCollection>>;
-      }) = {}
 ): DataClient<Operations> {
-  if (options.operations)
-    return createOperationClient({
-      operations: withDimensionSelectors(options.operations),
-      lakehouse: options.lakehouse,
-    });
-  const filters = Object.freeze({ ...options.filters });
-  const http = createHttpTransport(options);
-  const useHttp = options.endpoint !== undefined || options.fetch !== undefined;
-
-  return typedClient<Operations>({
-    filters,
-    async query(name, input, { signal } = {}) {
-      const transport =
-        options.transport ??
-        (useHttp ? http : (localFrameBridge()?.transport ?? http));
-      const response = await transport(name, input, signal);
-      const ok = response.status >= 200 && response.status < 300;
-      let body: Omit<DataResponse<OutputOf<Operations[typeof name]>>, 'input'>;
-      try {
-        // The envelope is validated here; the shared operation contract owns data.
-        body = dataQueryRoute.output(response, { operation: name, input })
-          .body as typeof body;
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (error instanceof MessageRoutingError)
-          throw new DataAppError(error.message, error.code, error.requestId);
-        throw new DataAppError(
-          ok ? 'The data response was invalid.' : 'Could not load data.',
-          ok ? 'invalid_response' : 'request_failed'
-        );
-      }
-
-      return { ...body, input };
-    },
+  return createOperationClient({
+    operations: withDimensionSelectors(options.operations),
+    lakehouse: options.lakehouse,
   });
 }
 
@@ -256,10 +178,10 @@ function createOperationClient<Operations extends DataOperations>(options: {
         options.lakehouse ??
         (typeof window === 'undefined'
           ? undefined
-          : getDataAppTransport()?.lakehouse);
+          : (getDataAppTransport()?.lakehouse ?? getLocalQueryLakehouse()));
       if (!lakehouse)
         throw new DataAppError(
-          'An authorized SQL bridge must be installed first.',
+          'An authorized data bridge must be installed first.',
           'bridge_unavailable',
           requestId
         );

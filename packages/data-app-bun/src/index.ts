@@ -5,11 +5,15 @@
  */
 import {
   DataSourceError,
-  type Lakehouse,
+  registeredQueryRoute,
+  type QueryDefinitions,
+  type SqlLakehouse,
   type QueryResult,
-  type DataOperations,
 } from '@altertable/data-app/contract';
-import { createDataHandler } from '@altertable/data-app/server';
+import {
+  readRequestBody,
+  RequestBodyTooLargeError,
+} from '@altertable/data-app/internal';
 import {
   AltertableLakehouseClient,
   AltertableLakehouseError,
@@ -18,16 +22,15 @@ import {
   QueryError,
 } from '@altertable/lakehouse';
 
-/** Serve one app on localhost through the CLI's lakehouse proxy during development.
- * Hosted servers must authorize every viewer and must use `createDataHandler` directly. */
+/** Serve one app and its registered queries on localhost through the CLI's lakehouse proxy. */
 export function serveLocalApp({
   page,
-  operations,
+  queries,
   title,
   port = Number(process.env.PORT ?? 25837),
 }: {
   page: Bun.HTMLBundle;
-  operations: DataOperations;
+  queries: QueryDefinitions;
   title: string;
   port?: number;
 }) {
@@ -38,13 +41,95 @@ export function serveLocalApp({
     development: process.env.NODE_ENV !== 'production',
     idleTimeout: 60,
     routes: { '/': page },
-    fetch: createDataHandler(operations, async () => ({
-      lakehouse,
-    })),
+    fetch(request) {
+      if (new URL(request.url).pathname.startsWith('/api/query/'))
+        return handleLocalQuery(request, queries, lakehouse);
+      return new Response('Not found', { status: 404 });
+    },
   });
   console.log(`${title} running at ${server.url}`);
 
   return server;
+}
+
+async function handleLocalQuery(
+  request: Request,
+  queries: QueryDefinitions,
+  lakehouse: SqlLakehouse
+): Promise<Response> {
+  const url = new URL(request.url);
+  const encodedId = url.pathname.slice('/api/query/'.length);
+  if (!encodedId || encodedId.includes('/'))
+    return Response.json({ reason: 'query_rejected' }, { status: 404 });
+  let queryId: string;
+  try {
+    queryId = decodeURIComponent(encodedId);
+  } catch {
+    return Response.json({ reason: 'query_rejected' }, { status: 404 });
+  }
+  if (!Object.hasOwn(queries, queryId))
+    return Response.json({ reason: 'query_rejected' }, { status: 404 });
+  if (request.method !== 'POST')
+    return Response.json({ reason: 'query_rejected' }, { status: 405 });
+  if (
+    request.headers.get('content-type')?.split(';')[0]?.trim() !==
+    'application/json'
+  )
+    return Response.json({ reason: 'query_rejected' }, { status: 415 });
+  const origin = request.headers.get('origin');
+  const site = request.headers.get('sec-fetch-site');
+  const mode = request.headers.get('sec-fetch-mode');
+  if (
+    (origin !== null && origin !== url.origin) ||
+    (site !== null && site !== 'same-origin') ||
+    (site !== null && origin === null) ||
+    (mode !== null && mode !== 'cors' && mode !== 'same-origin')
+  )
+    return Response.json({ reason: 'forbidden' }, { status: 403 });
+  let input;
+  try {
+    const raw = JSON.parse(await readRequestBody(request, 100_000));
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw) ||
+      Object.keys(raw).some(key => key !== 'limit' && key !== 'params')
+    )
+      throw new Error('Invalid local query.');
+    input = registeredQueryRoute.input({ ...raw, queryId });
+    const declaredParams = queries[queryId]!.params;
+    if (
+      input.params &&
+      Object.keys(input.params).some(key => !Object.hasOwn(declaredParams, key))
+    )
+      throw new Error('Unknown query parameter.');
+  } catch (error) {
+    return Response.json(
+      { reason: 'query_rejected' },
+      { status: error instanceof RequestBodyTooLargeError ? 413 : 400 }
+    );
+  }
+  try {
+    const result = await lakehouse.queryAll(queries[queryId]!.statement, {
+      limit: input.limit,
+      params: input.params,
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
+    });
+    return Response.json(registeredQueryRoute.output(result, input));
+  } catch (error) {
+    if (error instanceof DataSourceError) {
+      const status = {
+        unauthorized: 401,
+        forbidden: 403,
+        rate_limited: 429,
+        query_rejected: 400,
+        unavailable: 502,
+      }[error.reason];
+      return Response.json({ reason: error.reason }, { status });
+    }
+    console.error(error);
+    return Response.json({ reason: 'unavailable' }, { status: 502 });
+  }
 }
 
 /** Throw an actionable startup error when the selected lakehouse credentials are missing. */
@@ -69,7 +154,7 @@ export function validateLakehouseCredentials(
 export function localLakehouse(
   environment: Record<string, string | undefined> = process.env,
   request: typeof fetch = fetch
-): Lakehouse {
+): SqlLakehouse {
   validateLakehouseCredentials(environment);
   const proxyUrl = environment.ALTERTABLE_DATA_PROXY_URL;
   const proxyToken = environment.ALTERTABLE_DATA_PROXY_TOKEN;

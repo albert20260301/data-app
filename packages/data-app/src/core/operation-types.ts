@@ -32,28 +32,36 @@ export type DisclosedQuery = {
   queryId?: string;
 };
 
-/** Query interface supplied by a server adapter or an authorized iframe bridge. */
-export type Lakehouse = {
+type QueryOptions = {
+  limit: number;
+  signal: AbortSignal;
+  params?: QueryParameters;
+};
+
+/** SQL execution supplied by a local server adapter. */
+export type SqlLakehouse = {
   queryAll(
     statement: string,
-    options: {
-      limit: number;
-      signal: AbortSignal;
-      name?: string;
-      params?: QueryParameters;
-    }
+    options: QueryOptions & { name?: string }
   ): Promise<QueryResult>;
 };
 
+/** Registered query execution supplied by an authorized hosted bridge. */
+export type HostedLakehouse = {
+  queryAllById(queryId: string, options: QueryOptions): Promise<QueryResult>;
+};
+
+export type Lakehouse = SqlLakehouse | HostedLakehouse;
+
 export type OperationContext = {
-  lakehouse: Lakehouse;
+  lakehouse: SqlLakehouse;
   signal: AbortSignal;
   queryParams?: QueryParameters;
 };
 
 /**
- * The input parser runs in the operation executor's runtime: server for HTTP apps, browser for
- * bundle apps. Browser validation does not replace backend authorization or query limits.
+ * The input parser runs in the browser. Browser validation does not replace
+ * backend authorization or query limits.
  * Registered queries decode rows from their declared projections; `run` derives the operation's data.
  */
 export type DataOperation<Input, Output> = {
@@ -92,5 +100,5 @@ export type DataQueryBody<Output> = {
   queries?: DisclosedQuery[];
 };
 
-/** Delivery envelope shared by HTTP and iframe transports. */
+/** Delivery envelope for typed message routes. */
 export type TransportResponse<Body = unknown> = { status: number; body: Body };

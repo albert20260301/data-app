@@ -2,8 +2,9 @@ import { Database } from 'bun:sqlite';
 
 import { serveLocalApp } from '@altertable/data-app-bun';
 
+import { dataApp as hostedStarterApp } from '@/packages/data-app-examples/templates/starter-data-app/index';
+import { dataApp as localStarterApp } from '@/packages/data-app-examples/templates/starter-local-data-app/app';
 import starterPage from '@/packages/data-app-examples/templates/starter-local-data-app/src/index.html';
-import { operations } from '@/packages/data-app-examples/templates/starter-local-data-app/src/operations';
 import annotationsHost from '@/tests/public-api/fixtures/annotations-host.html';
 import appearance from '@/tests/public-api/fixtures/appearance.html';
 import bridgeFrame from '@/tests/public-api/fixtures/bridge-frame.html';
@@ -34,7 +35,12 @@ import styles from '@/tests/public-api/fixtures/styles.html';
 import timeApp from '@/tests/public-api/fixtures/time-app.html';
 import tooltips from '@/tests/public-api/fixtures/tooltips.html';
 
-const port = 0;
+const registeredQueries: Readonly<Record<string, { statement: string }>> = {
+  ...hostedStarterApp.queries,
+  ...localStarterApp.queries,
+};
+
+const port = Number(process.env.DATA_APP_TEST_PORT ?? 0);
 async function bundle(entry: string, sourcemap = false) {
   const result = await Bun.build({
     entrypoints: [entry],
@@ -155,12 +161,16 @@ const server = Bun.serve({
         '{"query_id":"starter-query"}\n[{"name":"connection_check","type":"INTEGER"}]\n[1]\n'
       );
     }
-    if (url.pathname === '/api/sql') {
-      const { statement, limit, params } = (await request.json()) as {
-        statement: string;
+    if (url.pathname === '/api/query') {
+      const { queryId, limit, params } = (await request.json()) as {
+        queryId: string;
         limit: number;
         params?: Record<string, string | number>;
       };
+      const statement = Object.hasOwn(registeredQueries, queryId)
+        ? registeredQueries[queryId]?.statement
+        : undefined;
+      if (!statement) return new Response('Unknown query', { status: 404 });
       if (statement.trim().startsWith('WITH sample_counts(')) {
         const query = database.query(statement);
         return Response.json({
@@ -184,11 +194,7 @@ const server = Bun.serve({
         });
       return new Response('Unexpected query', { status: 400 });
     }
-    if (url.pathname === '/api/data/forbidden')
-      return Response.json(
-        { error: { code: 'forbidden', message: 'Denied' } },
-        { status: 403 }
-      );
+
     return new Response('Not found', { status: 404 });
   },
 });
@@ -196,7 +202,7 @@ const server = Bun.serve({
 process.env.ALTERTABLE_DATA_PROXY_URL = new URL('/proxy', server.url).href;
 const local = serveLocalApp({
   page: starterPage,
-  operations,
+  queries: localStarterApp.queries,
   title: 'Local starter',
   port: 0,
 });

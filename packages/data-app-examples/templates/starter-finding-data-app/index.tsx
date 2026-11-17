@@ -1,9 +1,5 @@
 import { defineDataApp } from '@altertable/data-app';
-import {
-  createDataContext,
-  injectDataAppStyles,
-  mountDataApp,
-} from '@altertable/data-app-react';
+import { createDataContext, mountDataApp } from '@altertable/data-app-react';
 import {
   createDataHooks,
   DataApp,
@@ -14,14 +10,14 @@ import {
   VisualizationWidget,
 } from '@altertable/data-app-react';
 import { BarChart, ComposedChart } from '@altertable/data-app-react/ui';
-import { createDataClient } from '@altertable/data-app/client';
 import {
   dateTimeRangeFilter,
   displayChoice,
   parseCount,
+  queryDateTimeRangeParams,
 } from '@altertable/data-app/contract';
 // One query per widget: each section loads its own result when it nears the viewport.
-const dataApp = defineDataApp({
+export const dataApp = defineDataApp({
   title: 'Sample finding',
   description:
     'Fixture evidence; replace with the Finding and its supporting queries.',
@@ -33,8 +29,11 @@ const dataApp = defineDataApp({
       statement: `
 SELECT COALESCE(SUM(sample_count), 0) AS sample_count
 FROM starter_demo.daily_samples
-WHERE sample_date >= $period.from AND sample_date < $period.to`,
-      params: { period: { type: 'dateTimeRange' } },
+WHERE sample_date >= CAST($period_from AS TIMESTAMP) AND sample_date < CAST($period_to AS TIMESTAMP)`,
+      params: {
+        period_from: { type: 'string' },
+        period_to: { type: 'string' },
+      },
     },
     samplesOverTime: {
       projections: {
@@ -45,10 +44,11 @@ WHERE sample_date >= $period.from AND sample_date < $period.to`,
 SELECT strftime(date_trunc($grain, sample_date), '%Y-%m-%d') AS period_start,
   SUM(sample_count) AS sample_count
 FROM starter_demo.daily_samples
-WHERE sample_date >= $period.from AND sample_date < $period.to
+WHERE sample_date >= CAST($period_from AS TIMESTAMP) AND sample_date < CAST($period_to AS TIMESTAMP)
 GROUP BY ALL ORDER BY period_start LIMIT 200`,
       params: {
-        period: { type: 'dateTimeRange' },
+        period_from: { type: 'string' },
+        period_to: { type: 'string' },
         grain: { type: 'string', defaultValue: 'day' },
       },
     },
@@ -61,10 +61,11 @@ GROUP BY ALL ORDER BY period_start LIMIT 200`,
 SELECT CASE WHEN $breakdown = 'group' THEN group_name ELSE segment_name END AS member,
   SUM(sample_count) AS sample_count
 FROM starter_demo.daily_samples
-WHERE sample_date >= $period.from AND sample_date < $period.to
+WHERE sample_date >= CAST($period_from AS TIMESTAMP) AND sample_date < CAST($period_to AS TIMESTAMP)
 GROUP BY ALL ORDER BY sample_count DESC LIMIT 50`,
       params: {
-        period: { type: 'dateTimeRange' },
+        period_from: { type: 'string' },
+        period_to: { type: 'string' },
         breakdown: { type: 'string', defaultValue: 'segment' },
       },
     },
@@ -79,10 +80,11 @@ SELECT strftime(date_trunc($grain, sample_date), '%Y-%m-%d') AS period_start,
   CASE WHEN $breakdown = 'group' THEN group_name ELSE segment_name END AS member,
   SUM(sample_count) AS sample_count
 FROM starter_demo.daily_samples
-WHERE sample_date >= $period.from AND sample_date < $period.to
+WHERE sample_date >= CAST($period_from AS TIMESTAMP) AND sample_date < CAST($period_to AS TIMESTAMP)
 GROUP BY ALL ORDER BY period_start, member LIMIT 500`,
       params: {
-        period: { type: 'dateTimeRange' },
+        period_from: { type: 'string' },
+        period_to: { type: 'string' },
         grain: { type: 'string', defaultValue: 'day' },
         breakdown: { type: 'string', defaultValue: 'segment' },
       },
@@ -94,7 +96,7 @@ const findingPeriod = {
   from: new Date('2026-03-09T00:00:00Z'),
   to: new Date('2026-03-16T00:00:00Z'),
 };
-const period = dateTimeRangeFilter({
+const periodFilter = dateTimeRangeFilter({
   key: 'period',
   defaultValue: findingPeriod,
   minDate: '2026-01-05',
@@ -124,14 +126,15 @@ const breakdown = displayChoice({
   presentation: { control: 'widget' },
 });
 const policy = { maxQueryRows: 500, maxDurationMs: 15000 };
-const operations = {
+export const operations = dataApp.defineOperations({
   sampleTotal: dataApp.defineOperation({
-    filters: { period },
+    filters: { period: periodFilter },
     policy,
     async run({ query }, { period }) {
-      const current = await query('sampleTotal', { period: period.range });
-      const previous = period.comparison
-        ? await query('sampleTotal', { period: period.comparison })
+      const bounds = queryDateTimeRangeParams(periodFilter, period, 'period');
+      const current = await query('sampleTotal', bounds.current);
+      const previous = bounds.comparison
+        ? await query('sampleTotal', bounds.comparison)
         : null;
       return {
         current: parseCount(current.rows[0]!.sample_count),
@@ -140,15 +143,15 @@ const operations = {
     },
   }),
   samplesOverTime: dataApp.defineOperation({
-    filters: { period, grain },
+    filters: { period: periodFilter, grain },
     policy,
     async run({ query }, { period, grain }) {
       // With the comparison on, the trend starts at the previous period.
-      const range = {
-        from: period.comparison?.from ?? period.range.from,
-        to: period.range.to,
-      };
-      const result = await query('samplesOverTime', { period: range, grain });
+      const bounds = queryDateTimeRangeParams(periodFilter, period, 'period');
+      const result = await query('samplesOverTime', {
+        ...bounds.combined,
+        grain,
+      });
       return result.rows.map(row => ({
         periodStart: row.period_start,
         sampleCount: parseCount(row.sample_count),
@@ -156,11 +159,12 @@ const operations = {
     },
   }),
   samplesByMember: dataApp.defineOperation({
-    filters: { period, breakdown },
+    filters: { period: periodFilter, breakdown },
     policy,
     async run({ query }, { period, breakdown }) {
+      const bounds = queryDateTimeRangeParams(periodFilter, period, 'period');
       const result = await query('samplesByMember', {
-        period: period.range,
+        ...bounds.current,
         breakdown,
       });
       return result.rows.map(row => ({
@@ -170,11 +174,12 @@ const operations = {
     },
   }),
   sampleRows: dataApp.defineOperation({
-    filters: { period, grain, breakdown },
+    filters: { period: periodFilter, grain, breakdown },
     policy,
     async run({ query }, { period, grain, breakdown }) {
+      const bounds = queryDateTimeRangeParams(periodFilter, period, 'period');
       const result = await query('sampleRows', {
-        period: period.range,
+        ...bounds.current,
         grain,
         breakdown,
       });
@@ -185,7 +190,7 @@ const operations = {
       }));
     },
   }),
-};
+});
 const queryNames = {
   ...operations.sampleTotal.queryNames,
   ...operations.samplesOverTime.queryNames,
@@ -203,7 +208,7 @@ const sampleDataContext = createDataContext(queryNames)({
     },
   },
 });
-const { defineView } = createDataHooks(createDataClient({ operations }));
+const { defineView } = createDataHooks(operations.createDataClient());
 const count = { kind: 'count' } as const;
 const emptyFallback = {
   title: 'No samples in this period',
@@ -336,5 +341,4 @@ function App() {
     </DataApp>
   );
 }
-injectDataAppStyles();
 mountDataApp({ app: dataApp, component: App });

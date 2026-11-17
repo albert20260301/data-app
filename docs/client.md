@@ -1,70 +1,31 @@
 # Client
 
 Use this guide when customizing client delivery. Standard apps keep the
-starter's client. Import `createDataClient()` from `@altertable/data-app/client`.
+starter's client.
 
-## HTTP operations
+## Registered operations
+
+Hosted and local metric/finding starters use the same operation client:
 
 ```ts
-import { createDataClient } from '@altertable/data-app/client';
-import { operationFilters } from './filters.ts';
-import type { operations } from './operations.ts';
-
-const client = createDataClient<typeof operations>({
-  filters: operationFilters,
-});
-const response = await client.query(
-  'sampleCountsByGroup',
-  { groupName: 'all' },
-  { signal }
-);
+const operations = dataApp.defineOperations({ sampleCountsByGroup });
+const client = operations.createDataClient();
 ```
 
-Keep the operations import type-only so implementations stay on the server.
-Pass the filters each operation reads from a browser-safe module both sides
-import ([shared filters](filters.md#share-filters-with-http-and-local-apps)).
-Inputs and data are inferred from the operation map and `run()`.
-
-The default endpoint is `/api/data`. Override it with
-`createDataClient<typeof operations>({ filters, endpoint, fetch })` to change the base URL or supply a Fetch
-implementation. Calls POST JSON to `/api/data/:operation`; the client sends
-operation inputs rather than SQL or credentials.
+`run()` executes in the browser. Hosted apps send each named query through
+`data:query`; local apps install `installLocalQueryLakehouse()` before mounting
+and send it to `POST /api/query/:queryId`. Both backends execute only registered
+SQL. The local Bun server receives `dataApp.queries` through `serveLocalApp()`.
+Keep `run()` and its imports browser-safe in this mode.
 
 For direct client calls, render `response.data` and label it with `response.input`
 so retained results keep their original scope during refresh. React views handle
-this automatically. For custom error handling, import `DataAppError` from the same
-entry for public codes and request IDs. Pass an abort signal to cancel a request.
+this automatically. Import `DataAppError` for public codes and request IDs.
+Pass an abort signal to cancel a query.
 
-See [contracts](contract.md), [server handlers](server.md), and
-[React bindings](react.md).
-
-## Browser-owned operations for bundle apps
-
-Bundle apps pass their operation registry as a value, which also supplies its
-filters:
-
-```ts
-import { createDataClient } from '@altertable/data-app/client';
-
-// ... operations declared with dataApp.defineOperation()
-const client = createDataClient({ operations });
-const response = await client.query('sampleCountsByGroup', { groupName: '' });
-```
-
-Operations run in the browser and query through the host's `data:sql` route.
-The trusted bootstrap installs the bridge before app execution. A custom runtime
-must install it first or supply an authorized `lakehouse` adapter.
-
-Do not combine `operations` with `transport`, `endpoint`, or `fetch`. Browser
-policy bounds app requests; the [host SQL handler](embed.md#sql-query-route)
-must independently enforce access and resource limits.
+See [contracts](contract.md) and [React bindings](react.md).
 
 ## Iframe transport
-
-`createDataClient<typeof operations>({ filters, transport })` accepts a `DataTransport`. Without an explicit
-transport, endpoint, or Fetch implementation, it discovers an installed iframe
-transport before falling back to HTTP. Explicit endpoint/Fetch options select
-HTTP. `createHttpTransport()` provides the underlying operation delivery adapter.
 
 A URL-hosted app configures trust and installs the bridge before mounting:
 

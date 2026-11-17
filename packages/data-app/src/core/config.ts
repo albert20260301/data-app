@@ -9,6 +9,7 @@ import {
   type InputOperationDefinition,
   type WithFilterInput,
 } from '../authoring/contract.ts';
+import { createDataClient, type DataClient } from '../client/data-client.ts';
 import type { FilterCollection } from './app-filters.ts';
 import type { AppearanceOptions } from './appearance.ts';
 import {
@@ -18,6 +19,7 @@ import {
   type SourceDimensionFilter,
 } from './dimension-source.ts';
 import type { FilterInput } from './operation-filters.ts';
+import type { DataOperations } from './operation-types.ts';
 import {
   snapshotQueries,
   type QueryDefinitions,
@@ -49,6 +51,12 @@ export type DataAppConfig<Queries extends QueryDefinitions = QueryDefinitions> =
     queries: Queries;
   };
 
+export type DataAppOperationRegistry<Operations extends DataOperations> =
+  Operations & {
+    /** Run operations in a hosted iframe using its installed query bridge. */
+    createDataClient(): DataClient<Operations>;
+  };
+
 /** An app declaration with operations bound to its query registry. */
 export type DataAppDefinition<
   Queries extends QueryDefinitions = QueryDefinitions,
@@ -76,6 +84,10 @@ export type DataAppDefinition<
   >(
     operation: FilterOperationDefinition<Filters, Output, Queries>
   ): DefinedOperation<FilterInput<Filters>, Output, Queries, Filters>;
+  /** Bind a named registry to these queries and derive its client and filters. */
+  defineOperations<const Operations extends DataOperations>(
+    operations: Operations
+  ): DataAppOperationRegistry<Operations>;
 };
 
 /**
@@ -94,8 +106,7 @@ export type DataAppDefinition<
  * references, and callbacks. Extraction reads literals without executing app code.
  * TypeScript and runtime query rules own configuration validation.
  *
- * Scalar placeholders pass to the backend. Datetime-range bound references ($period.from/to)
- * expand to DuckDB timestamp expressions while the range is bound as JSON.
+ * Statements use DuckDB SQL and bound parameters without SDK-only SQL syntax.
  * Declare each parameter's type and optional defaultValue.
  * Values are scalars or declared datetime ranges, never SQL fragments or identifiers.
  * Host queryParams supply protected values; callers cannot override them.
@@ -120,7 +131,24 @@ export function defineDataApp<const Queries extends QueryDefinitions>(
         queries: queries as unknown as CheckedQueries<Queries>,
       } as never);
     },
-  });
+    defineOperations(operations: DataOperations) {
+      if (Object.hasOwn(operations, 'createDataClient'))
+        throw new Error('Operation name createDataClient is reserved.');
+      const registry = {
+        ...operations,
+      } as DataAppOperationRegistry<DataOperations>;
+      Object.setPrototypeOf(registry, {
+        createDataClient() {
+          return (
+            createDataClient as (options: object) => DataClient<DataOperations>
+          )({
+            operations: registry,
+          });
+        },
+      });
+      return Object.freeze(registry);
+    },
+  }) as unknown as DataAppDefinition<Queries>;
 }
 
 export function dataAppTitle(

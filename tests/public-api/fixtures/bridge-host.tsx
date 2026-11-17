@@ -4,7 +4,6 @@ import {
   type DataAppLogger,
 } from '@altertable/data-app-embed';
 import { DataAppBridge } from '@altertable/data-app-embed/react';
-import { createHttpTransport } from '@altertable/data-app/client';
 import { createMessageRouter } from '@altertable/data-app/contract';
 import {
   StrictMode,
@@ -43,10 +42,9 @@ function Host() {
     warn: (...args) => record('warn', args),
     error: (...args) => record('error', args),
   };
-  const forward = createHttpTransport();
   const router = createMessageRouter(bridgeRoutes, {
-    'data:query'({ operation, input }, { signal }) {
-      return forward(operation, input, signal);
+    'data:query'() {
+      return { columns: [], rows: [] };
     },
     'navigation:update': createNavigationHandler(),
     'test:wait'(_input, { signal }) {

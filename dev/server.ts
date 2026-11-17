@@ -6,9 +6,11 @@ import { createReloadChannel } from '@altertable/data-app-bun/reload';
 import {
   DataSourceError,
   parseDataAppAnnotationDraft,
+  type QueryDefinitions,
   type QueryParameters,
 } from '@altertable/data-app/contract';
 
+import { dataApp as playgroundApp } from '@/dev/app';
 import appearance from '@/dev/fixtures/appearance.html';
 import bridgeFrame from '@/dev/fixtures/bridge-frame.html';
 import bridgeHost from '@/dev/fixtures/bridge-host.html';
@@ -21,13 +23,27 @@ import layoutHost from '@/dev/fixtures/layout-host.html';
 import layout from '@/dev/fixtures/layout.html';
 import styleStress from '@/dev/fixtures/style-stress.html';
 import styles from '@/dev/fixtures/styles.html';
+import { dataApp as hostedStarterApp } from '@/packages/data-app-examples/templates/starter-data-app/index';
+import { dataApp as hostedFindingStarterApp } from '@/packages/data-app-examples/templates/starter-finding-data-app/index';
 import { dataApp as starterApp } from '@/packages/data-app-examples/templates/starter-local-data-app/app';
 import starterPage from '@/packages/data-app-examples/templates/starter-local-data-app/src/index.html';
-import { operations as starterOperations } from '@/packages/data-app-examples/templates/starter-local-data-app/src/operations';
+import { dataApp as findingStarterApp } from '@/packages/data-app-examples/templates/starter-local-finding-data-app/app';
 import findingStarterPage from '@/packages/data-app-examples/templates/starter-local-finding-data-app/src/index.html';
-import { operations as findingStarterOperations } from '@/packages/data-app-examples/templates/starter-local-finding-data-app/src/operations';
+import { dataApp as metricStarterApp } from '@/packages/data-app-examples/templates/starter-local-metric-data-app/app';
 import metricStarterPage from '@/packages/data-app-examples/templates/starter-local-metric-data-app/src/index.html';
-import { operations as metricStarterOperations } from '@/packages/data-app-examples/templates/starter-local-metric-data-app/src/operations';
+import { dataApp as hostedMetricStarterApp } from '@/packages/data-app-examples/templates/starter-metric-data-app/index';
+
+const defaultRegisteredQueries: QueryDefinitions = {
+  ...hostedStarterApp.queries,
+  ...starterApp.queries,
+};
+const previewQueries: Readonly<Record<string, QueryDefinitions>> = {
+  '/starter-data-app': hostedStarterApp.queries,
+  '/starter-metric-data-app': hostedMetricStarterApp.queries,
+  '/starter-finding-data-app': hostedFindingStarterApp.queries,
+  '/playground': playgroundApp.queries,
+  '/content-sizing': playgroundApp.queries,
+};
 
 async function bundle(entry: string) {
   const result = await Bun.build({
@@ -125,21 +141,21 @@ if (!lakehouse) {
 if (!isDevelopment) process.env.NODE_ENV = 'production';
 serveLocalApp({
   page: starterPage,
-  operations: starterOperations,
+  queries: starterApp.queries,
   title: starterApp.title,
   port: port + 2,
 });
 if (isDevelopment)
   serveLocalApp({
     page: metricStarterPage,
-    operations: metricStarterOperations,
+    queries: metricStarterApp.queries,
     title: 'Local metric starter',
     port: port + 3,
   });
 if (isDevelopment)
   serveLocalApp({
     page: findingStarterPage,
-    operations: findingStarterOperations,
+    queries: findingStarterApp.queries,
     title: 'Local finding starter',
     port: port + 4,
   });
@@ -272,7 +288,11 @@ Bun.serve({
         '{"query_id":"starter-query"}\n[{"name":"connection_check","type":"INTEGER"}]\n[1]\n'
       );
     }
-    if (path === '/api/sql') {
+    if (path === '/api/query') {
+      const sourcePath = new URL(request.headers.get('referer') ?? request.url)
+        .pathname;
+      const registeredQueries =
+        previewQueries[sourcePath] ?? defaultRegisteredQueries;
       const delay = isDevelopment
         ? Number(
             new URL(
@@ -282,14 +302,22 @@ Bun.serve({
         : 0;
       if (delay > 0) await Bun.sleep(Math.min(delay, 30_000));
       const query = (await request.json()) as {
-        statement: string;
+        queryId: string;
         limit: number;
         params?: QueryParameters;
       };
+      const statement = Object.hasOwn(registeredQueries, query.queryId)
+        ? registeredQueries[query.queryId]?.statement
+        : undefined;
+      if (!statement)
+        return Response.json(
+          { error: 'Unknown registered query' },
+          { status: 404 }
+        );
       if (lakehouse) {
         try {
           const { columns, rows, queryId } = await lakehouse.queryAll(
-            query.statement,
+            statement,
             { limit: query.limit, signal: request.signal, params: query.params }
           );
           return Response.json({ columns, rows, queryId });
@@ -308,11 +336,11 @@ Bun.serve({
         }
       }
       if (
-        query.statement.trim().startsWith('WITH sample_counts(') &&
+        statement.trim().startsWith('WITH sample_counts(') &&
         query.limit === 10
       ) {
         const rows = fixtureDatabase
-          .query(query.statement)
+          .query(statement)
           .values(
             Object.fromEntries(
               Object.entries(query.params ?? {}).map(([key, value]) => [
@@ -327,10 +355,7 @@ Bun.serve({
           queryId: 'sample-query',
         });
       }
-      if (
-        query.statement !== 'SELECT 1 AS connection_check' ||
-        query.limit !== 1
-      )
+      if (statement !== 'SELECT 1 AS connection_check' || query.limit !== 1)
         return Response.json(
           { error: 'Unexpected SQL request' },
           { status: 400 }
@@ -341,18 +366,6 @@ Bun.serve({
         queryId: 'sql-query',
       });
     }
-    if (path === '/api/data/forbidden')
-      return Response.json(
-        { error: { code: 'forbidden', message: 'Denied' } },
-        { status: 403 }
-      );
-    if (path === '/api/data/connection')
-      return Response.json({
-        data: true,
-        requestId: 'request',
-        queriedAt: '2026-09-30T00:00:00Z',
-        queryIds: ['query'],
-      });
 
     return new Response('Not found', { status: 404 });
   },

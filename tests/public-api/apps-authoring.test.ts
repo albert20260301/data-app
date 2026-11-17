@@ -5,13 +5,44 @@ import { test, localURL } from '@/tests/public-api/browser';
 describe('authoring', () => {
   const failure = { error: 'Fixture unavailable' };
 
+  test('local server runs only registered query IDs', async () => {
+    function run(id: string, body: unknown) {
+      return fetch(new URL(`/api/query/${id}`, localURL), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const result = await run('connection', { limit: 1 });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ rows: [[1]] });
+    expect((await run('unknown', { limit: 1 })).status).toBe(404);
+    expect((await run('connection', { limit: 10_001 })).status).toBe(400);
+    expect(
+      (await run('connection', { limit: 1, params: { sql: 'SELECT 1' } }))
+        .status
+    ).toBe(400);
+    expect(
+      (
+        await fetch(new URL('/api/query/connection', localURL), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            origin: 'https://other.example',
+          },
+          body: JSON.stringify({ limit: 1 }),
+        })
+      ).status
+    ).toBe(403);
+  });
+
   test('single-file hosted example queries through the host and preserves displayed filters', async ({
     page,
   }) => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     const requests: {
-      statement: string;
+      queryId: string;
       limit: number;
       host: boolean;
       params: { groupName: string; limit: number };
@@ -21,7 +52,7 @@ describe('authoring', () => {
     let gate = new Promise<void>(resolve => {
       release = resolve;
     });
-    await page.route('**/api/sql', async route => {
+    await page.route('**/api/query', async route => {
       const payload = route.request().postDataJSON();
       requests.push({
         ...payload,
@@ -33,6 +64,9 @@ describe('authoring', () => {
     });
     await page.goto('/starter-data-app');
     const app = page.frameLocator('iframe');
+    await expect
+      .poll(() => app.locator('style[data-altertable-styles]').count())
+      .toBe(1);
     await expect
       .poll(() =>
         page
@@ -289,16 +323,21 @@ describe('authoring', () => {
       )
       .toBe(true);
     // Each widget runs its own query through the host, capped by its operation policy.
-    const countRequests = requests.filter(request =>
-      request.statement.includes('ORDER BY group_name')
+    const countRequests = requests.filter(
+      request => request.queryId === 'sampleCountsByGroup'
     );
-    const totalRequests = requests.filter(request =>
-      request.statement.includes('SUM(sample_count)')
+    const totalRequests = requests.filter(
+      request => request.queryId === 'sampleTotal'
     );
     expect(countRequests.length).toBeGreaterThan(0);
     expect(totalRequests.length).toBeGreaterThan(0);
     expect(countRequests.length + totalRequests.length).toBe(requests.length);
     expect(requests.every(request => request.host)).toBe(true);
+    expect(
+      requests.every(
+        request => !('statement' in request) && !('operation' in request)
+      )
+    ).toBe(true);
     expect(
       countRequests.every(
         request => request.limit === 10 && request.params.limit === 10
@@ -318,7 +357,7 @@ describe('authoring', () => {
 
   test('hosted initial query error recovers by retry', async ({ page }) => {
     let fail = true;
-    await page.route('**/api/sql', async route => {
+    await page.route('**/api/query', async route => {
       if (fail) await route.fulfill({ status: 503, json: failure });
       else await route.continue();
     });
@@ -377,17 +416,12 @@ describe('authoring', () => {
     let gate = new Promise<void>(resolve => {
       release = resolve;
     });
-    await page.route('**/api/data/connection', async route => {
+    await page.route('**/api/query/connection', async route => {
       await gate;
       if (fail)
         await route.fulfill({
           status: 503,
-          json: {
-            error: {
-              code: 'source_unavailable',
-              message: 'Fixture unavailable',
-            },
-          },
+          json: { reason: 'unavailable' },
         });
       else await route.continue();
     });

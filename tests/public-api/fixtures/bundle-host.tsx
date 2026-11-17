@@ -1,7 +1,6 @@
 import {
   createNavigationHandler,
   createExternalLinkHandler,
-  createSqlQueryHandler,
   type DataAppActions,
   type DataAppDiagnostic,
   type DataAppLogger,
@@ -11,13 +10,12 @@ import {
   DataAppBridge,
   type DataAppBridgeHandle,
 } from '@altertable/data-app-embed/react';
-import { createHttpTransport } from '@altertable/data-app/client';
 import {
   createMessageRouter,
   openExternalLinkRoute,
   defineMessageRoute,
-  sqlQueryRoute,
   DataSourceError,
+  MessageRoutingError,
 } from '@altertable/data-app/contract';
 import {
   useReducer,
@@ -216,7 +214,6 @@ function Host() {
       ]);
     },
   };
-  const forward = createHttpTransport();
   function download(file: { filename: string; blob: Blob }) {
     if (exportFailure) throw new Error('Export unavailable');
     const url = URL.createObjectURL(file.blob);
@@ -230,7 +227,6 @@ function Host() {
   const router = createMessageRouter(
     {
       ...bridgeRoutes,
-      'data:sql': sqlQueryRoute,
       'navigation:openExternal': openExternalLinkRoute,
       'export:csv': fileRoute,
       'export:zip': fileRoute,
@@ -254,21 +250,20 @@ function Host() {
         setEchoRequests(value => value + 1);
         return { period, version };
       },
-      'data:query': ({ operation, input }, { signal }) =>
-        forward(operation, input, signal),
       'navigation:update': createNavigationHandler(),
-      'data:sql': createSqlQueryHandler(async () => ({
-        async queryAll(statement, { limit, signal, params }) {
-          const response = await fetch('/api/sql', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ statement, limit, params }),
-            signal,
-          });
-          if (!response.ok) throw new DataSourceError('unavailable');
-          return response.json();
-        },
-      })),
+      // Exercise the host's query-ID boundary in browser integration tests.
+      async 'data:query'({ queryId, limit, params }, { signal }) {
+        const response = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ queryId, limit, params }),
+          signal,
+        });
+        if (response.status === 404)
+          throw new MessageRoutingError('forbidden', 'Query not registered.');
+        if (!response.ok) throw new DataSourceError('unavailable');
+        return response.json();
+      },
       'navigation:openExternal': openExternalLink,
       'export:csv': download,
       'export:zip': download,
