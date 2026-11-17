@@ -457,6 +457,265 @@ test('default composed inspection formats the hovered measure and restores compl
     .toContain('Purple');
 });
 
+test('sparse stacked bars follow the nearest populated hour and closest visible series', async ({
+  page,
+}) => {
+  await page.goto('/chart-legends');
+  const chart = page.getByRole('region', {
+    name: 'Sparse stacked bars basic example',
+    exact: true,
+  });
+  const plot = chart.getByRole('application');
+  await plot.scrollIntoViewIfNeeded();
+  const bars = await chart
+    .locator('.recharts-bar-rectangle')
+    .evaluateAll(elements =>
+      elements
+        .map(element => element.getBoundingClientRect())
+        .filter(rect => rect.width > 0 && rect.height > 0)
+        .map(rect => ({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        }))
+        .sort((left, right) => left.x - right.x || right.y - left.y)
+    );
+  const [a0, b2, a3, b3] = bars;
+  const tooltip = chart.getByRole('tooltip');
+  await page.mouse.move(a0!.x + a0!.width / 2, a0!.y + a0!.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization A : 5');
+  await page.mouse.move(b2!.x + b2!.width / 2, b2!.y + b2!.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 7');
+  const anchored = (await tooltip.boundingBox())!;
+  const distanceToBar = Math.min(
+    Math.abs(anchored.x - (b2!.x + b2!.width)),
+    Math.abs(anchored.x + anchored.width - b2!.x)
+  );
+  expect(distanceToBar).toBeLessThanOrEqual(20);
+  await page.mouse.move(b2!.x + b2!.width / 2, b2!.y - 20);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 7');
+  expect(await tooltip.boundingBox()).toEqual(anchored);
+  const emptyHour = await plot.getByText('H1', { exact: true }).boundingBox();
+  await page.mouse.move(
+    emptyHour!.x + emptyHour!.width * 0.75,
+    b2!.y + b2!.height / 2
+  );
+  await expect.poll(() => tooltip.textContent()).toContain('H2');
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 7');
+  expect(await tooltip.boundingBox()).toEqual(anchored);
+  const nullHour = await plot.getByText('H4', { exact: true }).boundingBox();
+  await page.mouse.move(
+    nullHour!.x + nullHour!.width / 2,
+    b3!.y + b3!.height / 2
+  );
+  await expect.poll(() => tooltip.isVisible()).toBe(true);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 3');
+  await page.mouse.move(a3!.x + a3!.width / 2, a3!.y + a3!.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization A : 2');
+  const axisBaseline = await plot
+    .locator('.recharts-xAxis .recharts-cartesian-axis-line')
+    .evaluate(element => element.getBoundingClientRect().y);
+  const lowBarTooltip = (await tooltip.boundingBox())!;
+  expect(
+    axisBaseline - (lowBarTooltip.y + lowBarTooltip.height)
+  ).toBeGreaterThanOrEqual(8);
+  await expect
+    .poll(() =>
+      chart.locator('.recharts-bar-rectangle [opacity="0.75"]').count()
+    )
+    .toBe(1);
+  await page.mouse.move(b3!.x + b3!.width / 2, b3!.y + b3!.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 3');
+  await expect
+    .poll(() =>
+      chart.locator('.recharts-bar-rectangle [opacity="0.75"]').count()
+    )
+    .toBe(1);
+
+  await page.setViewportSize({ width: 320, height: 900 });
+  await plot.scrollIntoViewIfNeeded();
+  const rightmostBar = await chart
+    .locator('.recharts-bar-rectangle')
+    .evaluateAll(
+      elements =>
+        elements
+          .map(element => element.getBoundingClientRect())
+          .filter(rect => rect.width > 0 && rect.height > 0)
+          .map(rect => ({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          }))
+          .sort((left, right) => right.x - left.x)[0]
+    );
+  await page.mouse.move(
+    rightmostBar!.x + rightmostBar!.width / 2,
+    rightmostBar!.y + rightmostBar!.height / 2
+  );
+  await expect.poll(() => tooltip.isVisible()).toBe(true);
+  const narrowPlot = (await plot.boundingBox())!;
+  const narrowTooltip = (await tooltip.boundingBox())!;
+  expect(narrowTooltip.x).toBeGreaterThanOrEqual(narrowPlot.x);
+  expect(narrowTooltip.x + narrowTooltip.width).toBeLessThanOrEqual(
+    narrowPlot.x + narrowPlot.width
+  );
+});
+
+test('brushed stacked bars inspect nested values and authored shapes after data and size changes', async ({
+  page,
+}) => {
+  await page.goto('/chart-legends');
+  const chart = page.getByRole('region', {
+    name: 'Stacked bar inspection regressions basic example',
+    exact: true,
+  });
+  const plot = chart.getByRole('application');
+  await plot.scrollIntoViewIfNeeded();
+  const bShape = chart.locator('[data-custom-shape="b"]');
+  await expect.poll(() => bShape.count()).toBeGreaterThan(0);
+  const bBar = (await bShape.first().boundingBox())!;
+  const pointer = { x: bBar.x + bBar.width / 2, y: bBar.y + bBar.height / 2 };
+  await page.mouse.move(pointer.x, pointer.y);
+  const tooltip = chart.getByRole('tooltip');
+  await expect.poll(() => tooltip.textContent()).toContain('H2');
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 7');
+  await expect
+    .poll(() => chart.locator('[data-custom-active-shape="b"]').count())
+    .toBe(1);
+  expect(
+    await chart
+      .locator('[data-custom-active-shape="b"]')
+      .getAttribute('data-inspection-active')
+  ).toBe('true');
+
+  await chart.getByRole('button', { name: 'Update bars' }).evaluate(button => {
+    (button as HTMLButtonElement).click();
+  });
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 9');
+
+  await chart.locator('section.altertable-composed-chart').evaluate(element => {
+    (element as HTMLElement).style.width = '70%';
+  });
+  await expect
+    .poll(async () => {
+      const bar = await chart
+        .locator('[data-custom-active-shape="b"]')
+        .first()
+        .boundingBox();
+      const tip = await tooltip.boundingBox();
+      if (!bar || !tip) return Infinity;
+      return Math.min(
+        Math.abs(tip.x - (bar.x + bar.width)),
+        Math.abs(tip.x + tip.width - bar.x)
+      );
+    })
+    .toBeLessThanOrEqual(20);
+});
+
+test('a mixed chart inspects the nearest line point or stacked bar and preserves authored shapes', async ({
+  page,
+}) => {
+  await page.goto('/chart-legends');
+  const chart = page.getByRole('region', {
+    name: 'Mixed stacked inspection basic example',
+    exact: true,
+  });
+  const plot = chart.getByRole('application');
+  await plot.scrollIntoViewIfNeeded();
+  const a = (await chart
+    .locator('.recharts-bar-rectangle [name="Organization A"]')
+    .first()
+    .boundingBox())!;
+  const b = (await chart
+    .locator('.recharts-bar-rectangle [name="Organization B"]')
+    .first()
+    .boundingBox())!;
+  expect(
+    await chart
+      .locator('.recharts-bar-rectangle [name="Organization A"]')
+      .first()
+      .getAttribute('fill')
+  ).toBe('#13579b');
+  const tooltip = chart.getByRole('tooltip');
+  const linePoint = await chart
+    .locator('.recharts-line-curve')
+    .evaluate(path => {
+      const curve = path as SVGPathElement;
+      const point = curve.getPointAtLength(0);
+      const screen = point.matrixTransform(curve.getScreenCTM()!);
+      return { x: screen.x, y: screen.y };
+    });
+  await page.mouse.move(linePoint.x, linePoint.y);
+  await expect.poll(() => tooltip.textContent()).toContain('Trend : 11');
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization B : 3');
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await expect
+    .poll(() => tooltip.textContent())
+    .toContain('Organization A : 5');
+  await expect
+    .poll(() => chart.locator('[data-active-shape="a"]').count())
+    .toBe(1);
+  await chart
+    .getByRole('button', { name: 'Trend', exact: true })
+    .evaluate(button => {
+      button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+  await expect
+    .poll(() =>
+      chart
+        .locator('[data-active-shape="a"]')
+        .evaluate(element => Boolean(element.closest('g[opacity="0.2"]')))
+    )
+    .toBe(true);
+});
+
+for (const name of [
+  'Wrapped category axis inspection',
+  'Wrapped vertical category axis inspection',
+]) {
+  test(`${name} supplies the tooltip label for the selected axis ID`, async ({
+    page,
+  }) => {
+    await page.goto('/chart-legends');
+    const chart = page.getByRole('region', {
+      name: `${name} basic example`,
+      exact: true,
+    });
+    await chart.getByRole('application').scrollIntoViewIfNeeded();
+    const bar = (await chart
+      .locator('.recharts-bar-rectangle path')
+      .first()
+      .boundingBox())!;
+    await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2);
+    const tooltip = chart.getByRole('tooltip');
+    await expect.poll(() => tooltip.textContent()).toContain('H0');
+    expect(await tooltip.textContent()).not.toContain('Wrong 0');
+  });
+}
+
 test('touch inspection retains only the tapped series after releasing the screen', async ({
   mobilePage: page,
 }) => {
@@ -619,8 +878,10 @@ for (const name of ['Hover bars', 'Inspection lines', 'Inspection areas']) {
       );
       await expect.poll(() => tooltip.getByRole('listitem').count()).toBe(1);
       if (exit === 'leave') {
-        // No blur or key handler can reset a plot that has never received focus.
-        await page.mouse.move(0, 0);
+        // Leave for a stable sibling plot without focusing the inspected plot.
+        await page
+          .getByRole('application', { name: 'Hover lines', exact: true })
+          .hover();
         await expect.poll(() => tooltip.isVisible()).toBe(false);
       } else {
         // Move keyboard focus out of the plot while the pointer stays over it.

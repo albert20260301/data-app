@@ -15,7 +15,7 @@ import {
 import { applyAppearance } from '@altertable/data-app/appearance';
 import { useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Line as NativeLine } from 'recharts';
+import { Line as NativeLine, Rectangle } from 'recharts';
 
 injectDataAppStyles();
 applyAppearance(
@@ -301,6 +301,151 @@ function DynamicFunnelExample() {
         ]}
       />
     </>
+  );
+}
+
+function StackedBarInspectionRegressions() {
+  const [updated, setUpdated] = useState(false);
+  const rows = [
+    { time: { hour: 'H0' }, metrics: { a: 12, b: 0 } },
+    { time: { hour: 'H1' }, metrics: { a: 0, b: 0 } },
+    { time: { hour: 'H2' }, metrics: { a: 0, b: updated ? 9 : 7 } },
+    { time: { hour: 'H3' }, metrics: { a: updated ? 5 : 2, b: 3 } },
+    { time: { hour: 'H4' }, metrics: { a: 8, b: 0 } },
+  ];
+  return (
+    <>
+      <Button onClick={() => setUpdated(value => !value)}>Update bars</Button>
+      <ComposedChart ariaLabel="Stacked bar inspection regressions" data={rows}>
+        <ComposedChart.XAxis dataKey="time.hour" />
+        <ComposedChart.YAxis />
+        <ComposedChart.Bar
+          dataKey="metrics.a"
+          name="Organization A"
+          stackId="org"
+          shape={props => <Rectangle {...props} data-custom-shape="a" />}
+        />
+        <ComposedChart.Bar
+          dataKey="metrics.b"
+          name="Organization B"
+          stackId="org"
+          shape={props => <Rectangle {...props} data-custom-shape="b" />}
+          activeBar={props => (
+            <Rectangle
+              {...props}
+              data-custom-active-shape="b"
+              data-inspection-active={String(props.isActive)}
+            />
+          )}
+        />
+        <ComposedChart.Tooltip />
+        <ComposedChart.Brush startIndex={2} endIndex={4} height={20} />
+      </ComposedChart>
+    </>
+  );
+}
+
+function MixedStackedInspection() {
+  return (
+    <ComposedChart
+      ariaLabel="Stacked bars with a line"
+      data={[
+        { hour: 'H0', a: 5, b: 3, trend: 11 },
+        { hour: 'H1', a: 2, b: 4, trend: 10 },
+        { hour: 'H2', a: 6, b: 1, trend: 12 },
+      ]}
+    >
+      <ComposedChart.XAxis dataKey="hour" />
+      <ComposedChart.YAxis domain={[0, 14]} />
+      <ComposedChart.Bar
+        dataKey="a"
+        name="Organization A"
+        stackId="org"
+        shape={{ fill: '#13579b' }}
+        activeBar={<Rectangle data-active-shape="a" />}
+      />
+      <ComposedChart.Bar
+        dataKey="b"
+        name="Organization B"
+        stackId="org"
+        shape={true}
+      />
+      <ComposedChart.Line dataKey="trend" name="Trend" stroke="#e05252" />
+      <ComposedChart.Tooltip />
+      <ComposedChart.Legend />
+    </ComposedChart>
+  );
+}
+
+function WrappedHourAxis() {
+  return <ComposedChart.XAxis xAxisId="hours" dataKey="hour" />;
+}
+
+function WrappedAxisInspection() {
+  return (
+    <ComposedChart
+      ariaLabel="Stacked bars with wrapped category axis"
+      data={[
+        { wrong: 'Wrong 0', hour: 'H0', a: 5, b: 2 },
+        { wrong: 'Wrong 1', hour: 'H1', a: 3, b: 4 },
+      ]}
+    >
+      <ComposedChart.XAxis xAxisId="other" dataKey="wrong" hide />
+      <WrappedHourAxis />
+      <ComposedChart.YAxis />
+      <ComposedChart.Bar
+        xAxisId="hours"
+        dataKey="a"
+        name="Organization A"
+        stackId="org"
+      />
+      <ComposedChart.Bar
+        xAxisId="hours"
+        dataKey="b"
+        name="Organization B"
+        stackId="org"
+      />
+      <ComposedChart.Tooltip axisId="hours" />
+    </ComposedChart>
+  );
+}
+
+function WrappedHourYAxis() {
+  return <ComposedChart.YAxis yAxisId="hours" dataKey="hour" type="category" />;
+}
+
+function WrappedVerticalAxisInspection() {
+  return (
+    <ComposedChart
+      ariaLabel="Horizontal stacked bars with wrapped category axis"
+      layout="vertical"
+      data={[
+        { wrong: 'Wrong 0', hour: 'H0', a: 5, b: 2 },
+        { wrong: 'Wrong 1', hour: 'H1', a: 3, b: 4 },
+      ]}
+    >
+      <ComposedChart.XAxis type="number" />
+      <ComposedChart.YAxis
+        yAxisId="other"
+        dataKey="wrong"
+        type="category"
+        hide
+      />
+      <WrappedHourYAxis />
+      <ComposedChart.Bar
+        yAxisId="hours"
+        dataKey="a"
+        name="Organization A"
+        stackId="org"
+      />
+      <ComposedChart.Bar
+        yAxisId="hours"
+        dataKey="b"
+        name="Organization B"
+        stackId="org"
+      />
+      <ComposedChart.Tooltip axisId="hours" />
+    </ComposedChart>
   );
 }
 
@@ -1120,6 +1265,52 @@ createRoot(document.getElementById('root')!).render(
             },
           ]}
         />
+      </Example>
+      <Example
+        name="Sparse stacked bars"
+        description="Pointer inspection across occupied and empty hours."
+      >
+        <ComposedChart
+          ariaLabel="Sparse stacked bars"
+          data={[
+            { hour: 'H0', a: 5, b: 0 },
+            { hour: 'H1', a: 0, b: 0 },
+            { hour: 'H2', a: 0, b: 7 },
+            { hour: 'H3', a: 2, b: 3 },
+            { hour: 'H4', a: null, b: null },
+            { hour: 'H5', a: 8, b: 0 },
+          ]}
+        >
+          <ComposedChart.XAxis dataKey="hour" />
+          <ComposedChart.YAxis />
+          <ComposedChart.Bar dataKey="a" name="Organization A" stackId="org" />
+          <ComposedChart.Bar dataKey="b" name="Organization B" stackId="org" />
+          <ComposedChart.Tooltip />
+        </ComposedChart>
+      </Example>
+      <Example
+        name="Stacked bar inspection regressions"
+        description="Brush, nested keys, custom shapes, and data refresh."
+      >
+        <StackedBarInspectionRegressions />
+      </Example>
+      <Example
+        name="Mixed stacked inspection"
+        description="Stacked bars and a line share hourly categories."
+      >
+        <MixedStackedInspection />
+      </Example>
+      <Example
+        name="Wrapped category axis inspection"
+        description="The category axis is returned by a wrapper and uses a non-default axis ID."
+      >
+        <WrappedAxisInspection />
+      </Example>
+      <Example
+        name="Wrapped vertical category axis inspection"
+        description="Horizontal bars use a wrapped category Y axis."
+      >
+        <WrappedVerticalAxisInspection />
       </Example>
     </Grid>
   </Stack>

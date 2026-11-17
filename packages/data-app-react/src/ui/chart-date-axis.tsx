@@ -19,6 +19,11 @@ import {
   type XAxisTickContentProps,
 } from 'recharts';
 
+import { chartField as field } from './chart-data.ts';
+import {
+  ChartRegistrationContext,
+  type ChartDataKey,
+} from './chart-interaction.tsx';
 import { chartTimestamp, timeModel, timeTicks } from './chart-time.ts';
 import { ChartCursorChartContext } from './use-chart-cursor-group.tsx';
 
@@ -83,21 +88,6 @@ export function useDateAxisBar(id: string | number = 0) {
 export function useDateAxisLabel(id: string | number = 0) {
   return useContext(ChartDateAxesContext)?.formatters.get(id);
 }
-function field(row: unknown, key: string | number): unknown {
-  if (row == null || typeof row !== 'object') return undefined;
-  if (key in row) return (row as Record<string | number, unknown>)[key];
-  return String(key)
-    .replace(/\[(\d+)\]/g, '.$1')
-    .split('.')
-    .reduce<unknown>(
-      (value, part) =>
-        value != null && typeof value === 'object'
-          ? (value as Record<string, unknown>)[part]
-          : undefined,
-      row
-    );
-}
-
 const xAxisDefaults = {
   interval: 'preserveStartEnd' as const,
   stroke: 'var(--atbl-muted)',
@@ -160,7 +150,8 @@ function LinkedTimeCursor({
 /**
  * Infers temporal input from ISO dates, zoned ISO timestamps, and Date values.
  * Use scale="utc" for epoch milliseconds or type="category" for date-like categories.
- * Explicit tick formatters and tick lists retain authored axis behavior.
+ * Explicit tick formatters and tick lists retain authored axis behavior while
+ * date-like values still receive readable tooltip labels.
  */
 export function ChartXAxis<Row = unknown, Value = string | number | Date>(
   props: ComponentProps<typeof XAxis<Row, Value>>
@@ -176,21 +167,15 @@ export function ChartXAxis<Row = unknown, Value = string | number | Date>(
       props.scale == null &&
       props.tickFormatter == null &&
       props.ticks == null);
-  const model = useMemo(() => {
-    if (!enabled || !data?.length || dataKey == null) return null;
-    return timeModel(
-      data.map(row =>
-        typeof dataKey === 'function'
-          ? dataKey(row as Row)
-          : field(row, dataKey)
-      ),
-      numeric
-    );
-  }, [data, dataKey, enabled, numeric]);
-  const cursorModel = useMemo(() => {
-    if (!data?.length || dataKey == null || props.type === 'category')
+  const dateLabelModel = useMemo(() => {
+    if (!data?.length || dataKey == null) return null;
+    if (props.type === 'category' && props.scale !== 'utc') return null;
+    if (
+      props.type === 'number' &&
+      props.scale !== 'utc' &&
+      props.scale !== 'time'
+    )
       return null;
-    if (props.scale !== 'utc' && props.scale !== 'time') return null;
     return timeModel(
       data.map(row =>
         typeof dataKey === 'function'
@@ -200,11 +185,24 @@ export function ChartXAxis<Row = unknown, Value = string | number | Date>(
       props.scale === 'utc' || props.scale === 'time'
     );
   }, [data, dataKey, props.type, props.scale]);
+  const model = enabled ? dateLabelModel : null;
+  const cursorModel =
+    props.type !== 'category' &&
+    (props.scale === 'utc' || props.scale === 'time')
+      ? dateLabelModel
+      : null;
   const register = context?.register;
   const id = props.xAxisId ?? 0;
+  const registerCategoryAxis = useContext(
+    ChartRegistrationContext
+  )?.registerCategoryAxis;
+  useLayoutEffect(() => {
+    if (dataKey == null) return;
+    return registerCategoryAxis?.('x', id, dataKey as ChartDataKey);
+  }, [registerCategoryAxis, id, dataKey]);
   useEffect(
-    () => (model ? register?.(id, model.tooltip) : undefined),
-    [register, id, model]
+    () => (dateLabelModel ? register?.(id, dateLabelModel.tooltip) : undefined),
+    [register, id, dateLabelModel]
   );
   if (!model || dataKey == null) {
     return (
