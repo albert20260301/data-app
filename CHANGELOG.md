@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.78.0](https://github.com/altertable-ai/data-app/compare/v0.77.0...v0.78.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* run embedded page actions from the host ([#151](https://github.com/altertable-ai/data-app/issues/151))
+
+### Features
+
+* run embedded page actions from the host ([#151](https://github.com/altertable-ai/data-app/issues/151)) ([8e496b8](https://github.com/altertable-ai/data-app/commit/8e496b8f5c9e40cc33c273b05a7cb7d4cd7bb656))
+* show horizontal grids by default on Cartesian charts ([#157](https://github.com/altertable-ai/data-app/issues/157)) ([bfd12a7](https://github.com/altertable-ai/data-app/commit/bfd12a7d0481d4a6265f34ad86752b1d1213d719))
+
+
+### Bug Fixes
+
+* correct comparison math, date range edge cases, and stale docs ([#154](https://github.com/altertable-ai/data-app/issues/154)) ([6ec7c6b](https://github.com/altertable-ai/data-app/commit/6ec7c6bcf282fa2c5872868e09e3ed931a3668f4))
+* stacked bar tooltip inspection across sparse hourly data ([#156](https://github.com/altertable-ai/data-app/issues/156)) ([e917ff0](https://github.com/altertable-ai/data-app/commit/e917ff066577a8f8a598753d86bd76755a90bdfd))
+
 ## [0.77.0](https://github.com/altertable-ai/data-app/compare/v0.76.0...v0.77.0) (2026-11-12)
 
 
