@@ -408,3 +408,48 @@ test('operations sharing a client share one declaration per filter name', () => 
     'Operations read different filters named group; declare it once and share it (second).'
   );
 });
+
+test('preserves own prototype-named filter values through operation input', async () => {
+  const operation = defineOperation({
+    queries: {},
+    filters: { ['__proto__']: groupFilter() },
+    policy,
+    async run(_, input) {
+      return { own: Object.hasOwn(input, '__proto__'), value: input.__proto__ };
+    },
+  });
+  const client = createDataClient({
+    operations: { probe: operation },
+    lakehouse: {
+      async queryAll() {
+        return { columns: [], rows: [] };
+      },
+    },
+  });
+  await expect(
+    client.query('probe', JSON.parse('{"__proto__":"alpha"}'))
+  ).resolves.toMatchObject({ data: { own: true, value: 'alpha' } });
+});
+
+test('rejects conflicting own prototype-named operation filters', () => {
+  function makeOperation() {
+    return defineOperation({
+      queries: {},
+      filters: { ['__proto__']: groupFilter() },
+      policy,
+      async run() {
+        return 1;
+      },
+    });
+  }
+  expect(() =>
+    createDataClient({
+      operations: { first: makeOperation(), second: makeOperation() },
+      lakehouse: {
+        async queryAll() {
+          return { columns: [], rows: [] };
+        },
+      },
+    })
+  ).toThrow('Operations read different filters named __proto__');
+});

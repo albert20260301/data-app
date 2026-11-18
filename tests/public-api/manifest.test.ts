@@ -618,3 +618,25 @@ describe('manifest override', () => {
     ).toThrow(TypeError);
   });
 });
+
+test.each(['__proto__', "'__proto__'"])(
+  'rejects the %s prototype setter instead of reporting a query',
+  key => {
+    rejected(
+      source(
+        argumentWith(
+          `queries: { ${key}: { statement: 'SELECT 1', params: {}, projections: {} } }`
+        )
+      ),
+      'literal'
+    );
+  }
+);
+
+test('refuses to print an own prototype-named query as a prototype setter', () => {
+  const manifest = extractDataAppManifest(source()).manifest!;
+  manifest.queries = JSON.parse(
+    '{"__proto__":{"statement":"SELECT 1","params":{},"projections":{}}}'
+  );
+  expect(() => overrideDataAppManifest(source(), manifest)).toThrow(TypeError);
+});

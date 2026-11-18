@@ -255,6 +255,10 @@ function applyManifestChanges(
   }
 
   function printKey(key: string): string {
+    if (key === '__proto__')
+      throw new TypeError(
+        'Prototype setters are not manifest data properties.'
+      );
     return identifierName.test(key)
       ? key
       : printLiteral(ts.factory.createStringLiteral(key, singleQuote));

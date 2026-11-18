@@ -73,7 +73,7 @@ export function resolveFilterInput<Filters extends FilterCollection>(
   values: FilterValues<Filters>,
   reference = new Date()
 ): FilterInput<Filters> {
-  const input: Record<string, unknown> = {};
+  const input: Record<string, unknown> = Object.create(null);
   for (const [name, filter] of Object.entries(filters)) {
     const value = values[name as keyof Filters];
     input[name] =
@@ -96,7 +96,7 @@ export function parseFilterInput<Filters extends FilterCollection>(
   const fields = value as Record<string, unknown>;
   for (const name of Object.keys(fields))
     invariant(Object.hasOwn(filters, name), `Unknown filter input: ${name}.`);
-  const input: Record<string, unknown> = {};
+  const input: Record<string, unknown> = Object.create(null);
   for (const [name, filter] of Object.entries(filters)) {
     const selected = Object.hasOwn(fields, name) ? fields[name] : undefined;
     if (filter.kind === 'dateTimeRange')
@@ -131,7 +131,8 @@ export function defaultFilterInput<Filters extends FilterCollection>(
 export function combineOperationFilters(
   operations: Readonly<Record<string, FilterCollection>>
 ): FilterCollection {
-  const combined: Record<string, FilterCollection[string]> = {};
+  const combined: Record<string, FilterCollection[string]> =
+    Object.create(null);
   for (const [operation, filters] of Object.entries(operations))
     for (const [name, filter] of Object.entries(filters)) {
       invariant(
